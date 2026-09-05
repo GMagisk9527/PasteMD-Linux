@@ -6,15 +6,17 @@ Uses desktop-managed shortcuts; does not synthesize keyboard events.
 import argparse
 import base64
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
-import re
 import select
 import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
 
 
 MATH_EXTENSIONS = '+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash'
@@ -97,40 +99,16 @@ def math_count(value):
     return 0
 
 
-def convert_to_rtf(document):
-    """Use Writer's Office Math exporter; Pandoc's RTF writer flattens math."""
-    with tempfile.TemporaryDirectory(prefix='pastemd-rtf-') as directory:
-        root = Path(directory)
-        source = root / 'content.docx'
-        run(['pandoc', '--from', 'json', '--to', 'docx', '--output', str(source)], document)
-        # A unique profile keeps conversion independent of an open LibreOffice session.
-        env = dict(os.environ, SAL_USE_VCLPLUGIN='svp', GSETTINGS_BACKEND='memory')
-        profile = (root / 'profile').as_uri()
-        result = subprocess.run(
-            ['libreoffice', '-env:UserInstallation=' + profile, '--headless',
-             '--convert-to', 'rtf:Rich Text Format', '--outdir', str(root), str(source)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=60,
-        )
-        target = root / 'content.rtf'
-        if result.returncode or not target.is_file():
-            detail = (result.stderr + result.stdout).decode('utf-8', 'replace').strip()
-            raise RuntimeError('RTF 转换失败；请安装 libreoffice-writer 和 libreoffice-math。' + detail)
-        data = target.read_bytes()
-    if not data.startswith(b'{\\rtf'):
-        raise RuntimeError('转换结果不是有效 RTF，剪贴板未修改。')
+def native_clipboard_payload(document, plain_text):
+    """WPS exposes a DOCX ZIP under this native X11 clipboard format."""
+    docx = run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-'], document)
+    with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+        root = ET.fromstring(archive.read('word/document.xml'))
     expected = math_count(json.loads(document))
-    # Reject flattened/image-only math instead of reporting an incorrect success.
-    actual = len(re.findall(rb'\\moMath(?![A-Za-z])', data))
+    actual = len(root.findall('.//{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath'))
     if actual < expected:
-        raise RuntimeError(f'RTF 仅保留 {actual}/{expected} 个原生公式，剪贴板未修改；可使用 --open。')
-    return data
-
-
-def clipboard_payload(rtf, plain_text):
-    # Do not offer HTML: WPS may prefer it and discard MathML equations.
-    # The native X11 atom is necessary for WPS; MIME aliases serve other apps.
-    return {'Rich Text Format': rtf, 'text/rtf': rtf, 'text/richtext': rtf,
-            'text/plain': plain_text}
+        raise RuntimeError(f'DOCX 仅保留 {actual}/{expected} 个原生公式，剪贴板未修改。')
+    return {'Kingsoft WPS 9.0 Format': docx, 'text/plain': plain_text}
 
 
 def serve_clipboard():
@@ -166,12 +144,11 @@ def serve_clipboard():
         return 1
 
 
-def set_rtf_clipboard(rtf, plain_text):
+def set_clipboard_payload(payload):
     if not os.environ.get('DISPLAY'):
         raise RuntimeError('WPS 原生粘贴需要 XWayland（DISPLAY），当前不可用。')
     if importlib.util.find_spec('PySide6') is None:
         raise RuntimeError('缺少 PySide6：sudo dnf install python3-pyside6')
-    payload = clipboard_payload(rtf, plain_text)
     encoded = json.dumps({key: base64.b64encode(value).decode('ascii')
                           for key, value in payload.items()}).encode()
     process = subprocess.Popen(
@@ -209,7 +186,7 @@ def main(argv=None):
     parser.add_argument('--demo', action='store_true', help='转换内置公式样本，用于验证 WPS 粘贴，无需先复制来源')
     parser.add_argument('--input', choices=['auto', 'markdown', 'html'], default='auto')
     output = parser.add_mutually_exclusive_group()
-    output.add_argument('--clipboard', action='store_true', help='写入带原生公式的 RTF 剪贴板（默认），随后在 WPS 按 Ctrl+V')
+    output.add_argument('--clipboard', action='store_true', help='写入 WPS 原生 DOCX 剪贴板（默认），随后在 WPS 按 Ctrl+V')
     output.add_argument('--docx', action='store_true', help='保存 DOCX，而不是替换剪贴板')
     output.add_argument('--open', action='store_true', help='用 WPS 打开生成的 DOCX（隐含 --docx）')
     args = parser.parse_args(argv)
@@ -219,13 +196,11 @@ def main(argv=None):
         if not os.environ.get('WAYLAND_DISPLAY'):
             raise RuntimeError('请在 Wayland 桌面会话中运行。')
         required = ['pandoc'] + ([] if args.demo else ['wl-paste'])
-        if use_clipboard:
-            required.append('libreoffice')
         if open_docx:
             required.append('wps')
         missing = [tool for tool in required if not shutil.which(tool)]
         if missing:
-            raise RuntimeError('缺少命令：' + ', '.join(missing) + '。转换依赖：sudo dnf install pandoc wl-clipboard libreoffice-writer libreoffice-math python3-pyside6；WPS 需单独安装。')
+            raise RuntimeError('缺少命令：' + ', '.join(missing) + '。转换依赖：sudo dnf install pandoc wl-clipboard python3-pyside6；WPS 需单独安装。')
         if args.demo:
             content = DEMO_MARKDOWN.encode('utf-8')
             reader = 'markdown' + MATH_EXTENSIONS
@@ -249,18 +224,18 @@ def main(argv=None):
             if open_docx:
                 subprocess.Popen(['wps', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
-            message = 'DOCX 已保存；请从 WPS 打开的文档复制内容到目标文档：' + name
+            message = 'DOCX 已保存：' + name
             notify(message)
             print(message)
         else:
-            rtf = convert_to_rtf(content)
             plain_text = run(command + ['--to', 'plain'], content)
-            set_rtf_clipboard(rtf, plain_text)
-            message = '公式富文本已就绪，请在 WPS 中按 Ctrl+V。'
+            payload = native_clipboard_payload(content, plain_text)
+            set_clipboard_payload(payload)
+            message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'
             notify(message)
             print(message)
         return 0
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, ET.ParseError, subprocess.TimeoutExpired) as error:
         message = str(error)
         print('PasteMD: ' + message, file=sys.stderr)
         notify(message)

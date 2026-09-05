@@ -1,6 +1,6 @@
 # PasteMD
 
-> **Linux Fork（实验版）**：新增 Fedora + Wayland + WPS 的 RTF 公式剪贴板入口。
+> **Linux Fork（实验版）**：新增 Fedora + Wayland + WPS 的原生公式剪贴板入口（目标文档请使用 `.docx`）。
 > 使用方式、额外依赖和验证限制见 [Linux 使用说明](docs/LINUX.md)。
 > 可运行 `python3 scripts/pastemd-wayland.py --demo` 生成 Ctrl+V 测试样本。
 > 以下保留上游项目说明；Linux 入口目前尚未集成完整托盘功能。

@@ -1,26 +1,30 @@
 # Fedora + Wayland + WPS（实验性入口）
 
-2026-09-05：新增 Linux 命令行入口和原生公式 RTF 剪贴板链路，沿用 AGPL-3.0。
-上游完整托盘程序尚未适配 Linux。WPS 的最终粘贴显示与编辑能力仍需实机确认。
+2026-09-05：新增 WPS 原生 DOCX 剪贴板链路，沿用 AGPL-3.0。
+用户已在 Fedora Wayland + WPS 的 `.docx` 目标文档中确认粘贴正常；使用 `.wps` 格式时曾出现公式变成图片。
+**目标文档请使用 `.docx` 格式。** 上游完整托盘功能尚未适配 Linux。
 
 ## 安装
 
 先安装 WPS Linux 版，再安装转换与剪贴板依赖：
 
 ```bash
-sudo dnf install pandoc wl-clipboard libreoffice-writer libreoffice-math python3-pyside6
+sudo dnf install pandoc wl-clipboard python3-pyside6
 ```
 
 需要 Wayland 会话中的 XWayland（`DISPLAY`）。使用系统 `/usr/bin/python3`，确保能导入系统安装的 PySide6。
-仅有 LibreOffice Core 不够，需要 Writer 的文档导入/导出过滤器以及 Math 组件。
+当前方案不依赖 LibreOffice 或 WPS RPC 插件。
 
 ## 直接 Ctrl+V
 
-1. 复制 Markdown 或 AI 网页正文。
-2. 在仓库目录执行 `python3 scripts/pastemd-wayland.py`。
-3. 等待“公式富文本已就绪”的通知或终端提示，切回 WPS 按 Ctrl+V。
+1. 在 WPS 中打开或新建 `.docx` 文档。原文件为 `.wps` 时先另存为 `.docx`，再重新粘贴。
+2. 复制 Markdown 或 AI 网页正文。
+3. 在仓库目录执行 `python3 scripts/pastemd-wayland.py`。
+4. 等待“公式富文本已就绪”的通知或终端提示，切回 WPS 按 Ctrl+V。
 
-默认写入 RTF 剪贴板，不打开中间文档。转换成功后原剪贴板会被替换，不自动恢复。
+已经变成图片的公式不会因为另存为 `.docx` 自动恢复，需要重新从原始内容转换、粘贴。
+
+默认写入 WPS 原生剪贴板，不打开中间文档。转换成功后原剪贴板会被替换，不自动恢复。
 再次转换前重新复制来源。剪贴板服务在后台保有转换结果，复制其他内容后自动退出。
 
 默认优先读取 HTML，没有 HTML 时读取纯文本并按 Markdown 转换。
@@ -35,8 +39,8 @@ sudo dnf install pandoc wl-clipboard libreoffice-writer libreoffice-math python3
 python3 scripts/pastemd-wayland.py --demo
 ```
 
-然后在空白 WPS 文档中 Ctrl+V。样本包含中文、粗体、行内公式、分数、三次根式、求和、矩阵和表格。
-检查显示效果，并点击公式确认能编辑分子等内容。RTF 也包含兼容预览图，单凭看到公式不能证明可编辑。
+然后在 WPS 的空白 `.docx` 文档中 Ctrl+V。样本包含中文、粗体、行内公式、分数、三次根式、求和、矩阵和表格。
+检查显示效果，并点击公式确认能编辑分子等内容。
 
 ## 快捷键
 
@@ -57,35 +61,31 @@ python3 scripts/pastemd-wayland.py --docx
 # 保存 DOCX 并用 WPS 打开，保留剪贴板
 python3 scripts/pastemd-wayland.py --open
 
-# 显式指定 RTF 剪贴板，与默认行为相同
+# 显式指定原生剪贴板，与默认行为相同
 python3 scripts/pastemd-wayland.py --clipboard
 ```
 
-DOCX 保存在 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
-RTF 转换的中间文件与独立 LibreOffice 配置存放在临时目录，转换结束自动清理。
+保存的 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
+默认剪贴板模式在内存中生成、传递 DOCX，不保存中间文档。
 
 ## 实现与限制
 
 - Pandoc 将网页/Markdown 解析成文档结构，清理页面偏移、隐藏 span/div 包装以及重复 KaTeX 展示层。
-- 将文档转换为带 OMML 原生公式的 DOCX，再由独立配置的 LibreOffice 后台导出 RTF。不会复用已打开的 LibreOffice 文档会话。
-- 校验 RTF 保留的原生公式数量，转换失败或公式数减少时不写剪贴板。
-- PySide6 通过 XWayland 同时提供 WPS 使用的 `Rich Text Format` 原生格式、`text/rtf`、`text/richtext` 和纯文本。不会同时提供容易被 WPS 优先读取的 HTML。
+- 生成包含 OMML 原生公式的 DOCX，并校验公式数量；转换失败或公式数减少时不写剪贴板。
+- 实际检查 WPS 原生复制样本发现，其 `Kingsoft WPS 9.0 Format` 内容为 DOCX ZIP。PySide6 通过 XWayland 向这个格式写入完整 DOCX，同时提供纯文本。
+- 不提供 HTML 或 RTF 图片回退，避免 WPS 优先选择它们而丢失公式编辑能力。
 
-这与第一版的 HTML/MathML 剪贴板不同。第一版会把 DeepSeek 隐藏布局带入结果，HTML 也无法保证在 WPS 中转成原生公式。
 清理网页包装会丢弃其颜色、字号和页面布局。未接入上游所有网页公式恢复、图片与样式修复逻辑。
-LibreOffice 转换需要额外时间；复杂公式、图片、版式和不同 WPS 版本仍需验证。
+`.wps` 格式、复杂公式、图片、版式和不同 WPS 版本仍需验证。剪贴板使用的是观测到的 WPS 原生格式，未来版本可能改变。
 
 ## 验证
 
 ```bash
-# 单元测试与 Pandoc 测试
 python3 -m unittest discover -s tests -p 'test_wayland_cli.py'
-
-# 加上 LibreOffice 实际往返转换测试
-PASTEMD_TEST_OFFICE=1 python3 -m unittest discover -s tests -p 'test_wayland_cli.py'
 ```
 
-集成测试检查 DOCX → RTF → DOCX 后仍含原生公式、分数、根式、求和与表格。
-这证明转换结构保留，不替代 WPS 的 Ctrl+V 实测。
+测试实际生成原生剪贴板 DOCX，检查行内/块级公式、分数、根式、求和、矩阵及表格，且公式没有被替换成图片。
+同时覆盖转换失败不写剪贴板、DOCX 临时文件清理、网页隐藏布局和四种数学分隔符。
+测试结果不能代表所有 WPS 版本与目标文档格式。
 
-参考：[Qt 剪贴板生命周期](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QClipboard.html)、[LibreOffice 命令行参数](https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html)。
+参考：[Qt 剪贴板生命周期](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QClipboard.html)、[Pandoc 数学公式输出](https://pandoc.org/MANUAL.html#math)。

@@ -43,56 +43,43 @@ class WaylandTests(unittest.TestCase):
                 self.assertEqual(list((Path(directory) / 'pastemd').iterdir()), [])
 
 
-    def test_default_writes_rtf_without_opening_wps(self):
-        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'convert_to_rtf', return_value=b'rtf') as convert, patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'notify'), patch.object(cli, 'set_rtf_clipboard') as clipboard, patch.object(cli.subprocess, 'Popen') as opener:
+    def test_default_writes_native_docx_without_opening_wps(self):
+        expected = {'Kingsoft WPS 9.0 Format': b'docx', 'text/plain': b'plain'}
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'native_clipboard_payload', return_value=expected), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard, patch.object(cli.subprocess, 'Popen') as opener:
             self.assertEqual(cli.main([]), 0)
-            clipboard.assert_called_once_with(b'rtf', b'plain')
+            clipboard.assert_called_once_with(expected)
             opener.assert_not_called()
 
-    def test_failed_rtf_does_not_change_clipboard(self):
-        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'convert_to_rtf', side_effect=RuntimeError('math lost')), patch.object(cli, 'notify'), patch.object(cli, 'set_rtf_clipboard') as clipboard:
+    def test_failed_native_conversion_does_not_change_clipboard(self):
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'native_clipboard_payload', side_effect=RuntimeError('math lost')), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard:
             self.assertEqual(cli.main([]), 1)
             clipboard.assert_not_called()
 
-    def test_rtf_payload_offers_native_and_mime_formats_without_html(self):
-        payload = cli.clipboard_payload(b'rtf data', '中文'.encode())
-        self.assertEqual(payload['Rich Text Format'], b'rtf data')
-        self.assertEqual(payload['text/rtf'], b'rtf data')
-        self.assertEqual(payload['text/plain'].decode(), '中文')
-        self.assertNotIn('text/html', payload)
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_native_payload_preserves_demo_equations_without_image_fallback(self):
+        import io
+        prepared = cli.prepare_document(cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS)
+        payload = cli.native_clipboard_payload(prepared, b'plain')
+        self.assertEqual(set(payload), {'Kingsoft WPS 9.0 Format', 'text/plain'})
+        with zipfile.ZipFile(io.BytesIO(payload['Kingsoft WPS 9.0 Format'])) as archive:
+            root = ET.fromstring(archive.read('word/document.xml'))
+        ns = {'m': 'http://schemas.openxmlformats.org/officeDocument/2006/math', 'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        self.assertEqual(len(root.findall('.//m:oMath', ns)), 4)
+        for kind in ('f', 'rad', 'nary', 'm'):
+            self.assertTrue(root.findall('.//m:' + kind, ns), kind)
+        self.assertTrue(root.findall('.//w:tbl', ns))
+        self.assertFalse(root.findall('.//w:drawing', ns))
+        self.assertIn('中文', ''.join(root.itertext()))
 
-    def test_rtf_rejects_flattened_equations(self):
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_native_rejects_missing_equations(self):
         import json
-        from types import SimpleNamespace
-        doc = json.dumps({'blocks': [{'t': 'Math', 'c': [{'t': 'InlineMath'}, 'a']}]}).encode()
-        def converter(command, **kwargs):
-            target = Path(command[-1]).with_suffix('.rtf')
-            target.write_bytes(b'{\\rtf1 flattened}')
-            return SimpleNamespace(returncode=0, stderr=b'', stdout=b'')
-        with patch.object(cli, 'run'), patch.object(cli.subprocess, 'run', side_effect=converter):
+        plain = cli.prepare_document(b'No math', 'markdown')
+        docx = cli.run(['pandoc', '-f', 'json', '-t', 'docx', '-o', '-'], plain)
+        document = json.dumps({'blocks': [{'t': 'Math', 'c': [{'t': 'InlineMath'}, 'a']}]}).encode()
+        with patch.object(cli, 'run', return_value=docx):
             with self.assertRaisesRegex(RuntimeError, '0/1'):
-                cli.convert_to_rtf(doc)
-
-    @unittest.skipUnless(os.environ.get('PASTEMD_TEST_OFFICE') == '1', 'Set PASTEMD_TEST_OFFICE=1 for LibreOffice integration')
-    def test_native_math_rtf_roundtrip(self):
-        sample = '# 中文标题\n\n行内 $x^2$ 与中文。\n\n$$\\frac{a}{b}+\\sqrt[3]{x}=\\sum_{i=1}^{n} i$$\n\n|项目|值|\n|---|---|\n|中文|$a^2$|\n'
-        prepared = cli.prepare_document(sample.encode(), 'markdown' + cli.MATH_EXTENSIONS)
-        rtf = cli.convert_to_rtf(prepared)
-        self.assertIn(b'\\moMath', rtf)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / 'roundtrip.rtf'
-            source.write_bytes(rtf)
-            cli.subprocess.run(['libreoffice', '-env:UserInstallation=' + (root / 'profile').as_uri(), '--headless', '--convert-to', 'docx', '--outdir', directory, str(source)], check=True, capture_output=True, timeout=60, env=dict(os.environ, SAL_USE_VCLPLUGIN='svp', GSETTINGS_BACKEND='memory'))
-            with zipfile.ZipFile(root / 'roundtrip.docx') as archive:
-                xml = ET.fromstring(archive.read('word/document.xml'))
-            ns = {'m': 'http://schemas.openxmlformats.org/officeDocument/2006/math', 'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-            self.assertEqual(len(xml.findall('.//m:oMath', ns)), 3)
-            self.assertTrue(xml.findall('.//m:f', ns))
-            self.assertTrue(xml.findall('.//m:rad', ns))
-            self.assertTrue(xml.findall('.//m:nary', ns))
-            self.assertTrue(xml.findall('.//w:tbl', ns))
-            self.assertIn('中文', ''.join(xml.itertext()))
+                cli.native_clipboard_payload(document, b'plain')
 
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
     def test_deepseek_hidden_math_survives_as_native_docx(self):
