@@ -4,12 +4,41 @@
 Uses desktop-managed shortcuts; does not synthesize keyboard events.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+
+
+MATH_EXTENSIONS = '+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash'
+
+
+def clean_document(value):
+    """Drop browser layout wrappers while retaining semantic text, tables and math."""
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            if isinstance(item, dict) and item.get('t') in ('Span', 'Div'):
+                if 'katex-html' not in item['c'][0][1]:
+                    result.extend(clean_document(item['c'][1]))
+            elif isinstance(item, dict) and item.get('t') in ('RawInline', 'RawBlock') and item['c'][0] == 'html':
+                continue
+            else:
+                result.append(clean_document(item))
+        return result
+    if isinstance(value, dict):
+        return {key: clean_document(item) for key, item in value.items()}
+    return value
+
+
+def prepare_document(content, reader):
+    document = json.loads(run(['pandoc', '--from', reader, '--to', 'json'], content))
+    document = clean_document(document)
+    document['meta'] = {}
+    return json.dumps(document, ensure_ascii=False).encode('utf-8')
 
 
 def run(command, data=None):
@@ -23,13 +52,13 @@ def run(command, data=None):
 def read_clipboard(input_format):
     types = run(['wl-paste', '--list-types']).decode().splitlines()
     if input_format != 'markdown' and 'text/html' in types:
-        return run(['wl-paste', '--no-newline', '--type', 'text/html']), 'html'
+        return run(['wl-paste', '--no-newline', '--type', 'text/html']), 'html' + MATH_EXTENSIONS
     if input_format == 'html':
         raise RuntimeError('剪贴板没有 text/html；请复制网页正文或使用 --input markdown。')
     plain = next((t for t in types if t.lower().startswith('text/plain')), None)
     if plain is None:
         raise RuntimeError('剪贴板没有文本。请先复制 Markdown 或网页正文。')
-    return run(['wl-paste', '--no-newline', '--type', plain]), 'markdown+tex_math_dollars'
+    return run(['wl-paste', '--no-newline', '--type', plain]), 'markdown' + MATH_EXTENSIONS
 
 
 def notify(message):
@@ -43,14 +72,17 @@ def notify(message):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Fedora Wayland 剪贴板转换（实验版）')
     parser.add_argument('--input', choices=['auto', 'markdown', 'html'], default='auto')
-    parser.add_argument('--docx', action='store_true', help='保存 DOCX，而不是替换剪贴板')
-    parser.add_argument('--open', action='store_true', help='用 WPS 打开生成的 DOCX（隐含 --docx）')
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument('--clipboard', action='store_true', help='实验性 HTML 剪贴板输出，WPS 公式兼容性不保证')
+    output.add_argument('--docx', action='store_true', help='保存 DOCX，而不是替换剪贴板')
+    output.add_argument('--open', action='store_true', help='用 WPS 打开生成的 DOCX（隐含 --docx）')
     args = parser.parse_args(argv)
+    open_docx = args.open or not (args.docx or args.clipboard)
     try:
         if not os.environ.get('WAYLAND_DISPLAY'):
             raise RuntimeError('请在 Wayland 桌面会话中运行。')
-        required = ['wl-paste', 'pandoc'] + ([] if args.docx or args.open else ['wl-copy'])
-        if args.open:
+        required = ['wl-paste', 'pandoc'] + (['wl-copy'] if args.clipboard else [])
+        if open_docx:
             required.append('wps')
         missing = [tool for tool in required if not shutil.which(tool)]
         if missing:
@@ -58,8 +90,9 @@ def main(argv=None):
         content, reader = read_clipboard(args.input)
         if not content.strip():
             raise RuntimeError('剪贴板内容为空。')
-        command = ['pandoc', '--from', reader]
-        if args.docx or args.open:
+        content = prepare_document(content, reader)
+        command = ['pandoc', '--from', 'json']
+        if not args.clipboard:
             cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
             cache.mkdir(parents=True, exist_ok=True)
             fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
@@ -70,12 +103,14 @@ def main(argv=None):
                 Path(name).unlink(missing_ok=True)
                 raise
             print(name)
-            if args.open:
+            if open_docx:
                 subprocess.Popen(['wps', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
-            notify('DOCX 已保存：' + name)
+            message = 'DOCX 已保存；请从 WPS 打开的文档复制内容到目标文档：' + name
+            notify(message)
+            print(message)
         else:
-            converted = run(command + ['--to', 'html', '--standalone', '--mathml',
+            converted = run(command + ['--to', 'html' + MATH_EXTENSIONS, '--standalone', '--mathml',
                                        '--metadata', 'title=PasteMD'], content)
             # wl-copy forks a clipboard owner; DEVNULL avoids inherited captured pipes.
             result = subprocess.run(['wl-copy', '--type', 'text/html'], input=converted,
