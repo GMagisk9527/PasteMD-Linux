@@ -272,3 +272,7 @@ docs/node_modules/
 docs/.vitepress/
 *.bak
 dev_doc/
+# Track the experimental Linux entry point within the otherwise local scripts directory.
+!/scripts/
+/scripts/*
+!/scripts/pastemd-wayland.py
