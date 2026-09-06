@@ -1,4 +1,3 @@
-import importlib.util
 import os
 from pathlib import Path
 import tempfile
@@ -8,9 +7,7 @@ import xml.etree.ElementTree as ET
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('wayland_cli', Path(__file__).resolve().parents[1] / 'scripts/pastemd-wayland.py')
-cli = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cli)
+from pastemd.linux import cli
 
 
 class WaylandTests(unittest.TestCase):

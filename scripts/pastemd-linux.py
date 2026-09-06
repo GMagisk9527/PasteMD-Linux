@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compatibility entry point for the Fedora Wayland clipboard converter."""
+"""Launch the PasteMD Linux desktop application."""
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pastemd.linux.cli import main
+from pastemd.linux.gui import main
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -276,3 +276,4 @@ dev_doc/
 !/scripts/
 /scripts/*
 !/scripts/pastemd-wayland.py
+!/scripts/pastemd-linux.py

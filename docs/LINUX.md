@@ -31,6 +31,35 @@ sudo dnf install pandoc wl-clipboard python3-pyside6
 希望强制使用复制按钮产生的 Markdown 时，使用 `--input markdown`。
 支持 `$…$`、`$$…$$`、`\(…\)`、`\[…\]` 数学分隔符。
 
+## 图形界面、托盘和热键
+
+启动图形界面：
+
+```bash
+python3 scripts/pastemd-linux.py
+```
+
+界面提供输入格式选择、公式测试、DOCX 备选输出、快捷键配置、自动粘贴、登录自启和运行记录。
+默认快捷键是 `Ctrl+Shift+B`。复制内容并回到 WPS 的 `.docx` 文档后按快捷键，程序会转换并自动发送 Ctrl+V。
+
+自动粘贴会核对转换前后的 WPS 窗口及文档标题，并等待快捷键松开；焦点发生变化时只准备剪贴板，不会向其他窗口发送按键。
+关闭主窗口后程序驻留系统托盘，可从托盘再次打开或退出。
+
+将 PasteMD Linux 添加到 KDE 应用菜单：
+
+```bash
+python3 scripts/pastemd-linux.py --install
+```
+
+也可以在设置页点击“添加到应用菜单”。登录自启可在设置页开启。
+设置保存在 `${XDG_CONFIG_HOME:-~/.config}/pastemd-linux/settings.json`。
+
+如果桌面不是 KDE，程序仍可手动转换；可在桌面系统设置中把下列命令绑定为全局快捷键：
+
+```text
+/usr/bin/python3 /home/pxx/桌面/pastemd/PasteMD/scripts/pastemd-linux.py --trigger
+```
+
 ## 内置样本
 
 不需要预先复制任何内容，运行：
@@ -41,16 +70,6 @@ python3 scripts/pastemd-wayland.py --demo
 
 然后在 WPS 的空白 `.docx` 文档中 Ctrl+V。样本包含中文、粗体、行内公式、分数、三次根式、求和、矩阵和表格。
 检查显示效果，并点击公式确认能编辑分子等内容。
-
-## 快捷键
-
-在桌面设置的自定义快捷键中绑定 Ctrl+Shift+B，命令使用实际绝对路径，例如：
-
-```text
-/usr/bin/python3 /home/pxx/桌面/pastemd/PasteMD/scripts/pastemd-wayland.py
-```
-
-复制来源后按 Ctrl+Shift+B，等待完成，再按 Ctrl+V。快捷键由桌面管理，不模拟按键或自动检测窗口。
 
 ## DOCX 备选模式
 
@@ -87,5 +106,11 @@ python3 -m unittest discover -s tests -p 'test_wayland_cli.py'
 测试实际生成原生剪贴板 DOCX，检查行内/块级公式、分数、根式、求和、矩阵及表格，且公式没有被替换成图片。
 同时覆盖转换失败不写剪贴板、DOCX 临时文件清理、网页隐藏布局和四种数学分隔符。
 测试结果不能代表所有 WPS 版本与目标文档格式。
+
+桌面界面测试：
+
+```bash
+python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
+```
 
 参考：[Qt 剪贴板生命周期](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QClipboard.html)、[Pandoc 数学公式输出](https://pandoc.org/MANUAL.html#math)。
