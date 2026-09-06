@@ -1,514 +1,100 @@
-# PasteMD
+# PasteMD Linux
 
-> **PasteMD Linux**：已适配 Fedora、KDE Wayland 和 WPS Linux，支持图形界面、系统托盘、全局热键及自动粘贴。
-> 在 AI 页面复制内容，回到 WPS 的 `.docx` 文档后按 `Ctrl+Shift+B`，即可粘贴可编辑公式。
-> WPS 的 `.wps` 文档会把这种公式粘贴成图片；需要编辑公式时请新建或另存为 `.docx` 后重新粘贴。
-> 安装、启动、测试及故障排查见 [Linux 使用说明](docs/LINUX.md)。以下正文保留上游项目说明。
-<p align="center">
-  <img src="assets/icons/logo.png" alt="PasteMD" width="160" height="160">
-</p>
+PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正文转换后粘贴到 WPS。公式通过 WPS 原生 DOCX 剪贴板传递，在 `.docx` 文档中可以继续编辑。
 
-<p align="center">
-  <a href="https://github.com/RICHQAQ/PasteMD/releases">
-    <img src="https://img.shields.io/github/v/release/RICHQAQ/PasteMD?sort=semver&label=Release&style=flat-square&logo=github" alt="Release">
-  </a>
-  <a href="https://github.com/RICHQAQ/PasteMD/releases">
-    <img src="https://img.shields.io/github/downloads/RICHQAQ/PasteMD/total?label=Downloads&style=flat-square&logo=github" alt="Downloads">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/RICHQAQ/PasteMD?style=flat-square" alt="License">
-  </a>
-  <a href="https://gitcode.com/RICHQAQ/PasteMD">
-    <img src="https://gitcode.com/RICHQAQ/PasteMD/star/badge.svg" alt="AtomGitStars">
-  </a>
-  <img src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Word%20%7C%20WPS-5e8d36?style=flat-square&logo=windows&logoColor=white" alt="Platform">
-</p>
+> 本项目是 [RICHQAQ/PasteMD](https://github.com/RICHQAQ/PasteMD) 的 Linux 专用 Fork。原项目由 RICHQAQ 及其贡献者开发；本仓库保留原许可证、提交历史和版权归属。Linux 适配由 GMagisk9527 维护。更多信息见 [NOTICE.md](NOTICE.md)。
 
-<p align="center"> 
-  <a href="docs/md/README.en.md">English</a>
-  |
-  <a href="README.md">简体中文</a>
-  |
-  <a href="docs/md/README.ja.md">日本語</a>
-</p>
+## 功能
 
-<p align="center">
-<a href="https://hellogithub.com/repository/RICHQAQ/PasteMD" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=7dfb1883330d441f9264d8e8945c75e2&claim_uid=RvDOqI1Satiwzh4&theme=neutral" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
-<a href="https://trendshift.io/repositories/15640?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-15640" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/15640/daily?language=Python" alt="RICHQAQ%2FPasteMD | Trendshift" width="250" height="55" /></a>
-</p>
+- Fedora、KDE Plasma、Wayland 和 WPS Linux 适配
+- PySide6 图形界面和系统托盘
+- KDE 全局快捷键，默认为 `Ctrl+Shift+B`
+- 转换完成后自动向原 WPS 窗口发送 `Ctrl+V`
+- 粘贴前核对窗口和文档焦点，避免内容进入其他应用
+- 支持 Markdown、网页 HTML、行内公式、块级公式、表格和常用 LaTeX 结构
+- 可生成并打开独立 DOCX 文件
 
+## 安装
 
-<!-- sponsor-ad:start -->
-## ❤️ 赞助商
-<table>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=pasteMD"><img src="docs/img/AtlasCloud_logo.svg" alt="Atlas Cloud" width="180"></a></td>
-<td valign="middle">
-  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=pasteMD">Atlas Cloud</a> 是一个全模态 AI 推理平台，为开发者提供单一 AI API，用于访问视频生成、图像生成和 LLM API。无需管理多个供应商集成，接入一次即可统一访问覆盖所有模态的 300+ 精选模型。<br>
-  查看 Atlas Cloud 新的 Coding Plan 推广，获得更具预算友好性的 API 访问：<a href="https://www.atlascloud.ai/console/coding-plan">https://www.atlascloud.ai/console/coding-plan</a></td>
-</tr>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://go.apimart.ai/gh-pastemd"><img src="docs/img/APIMart.png" alt="APIMart" width="180"></a></td>
-<td valign="middle">
-  感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过此<a href="https://go.apimart.ai/gh-pastemd">注册链接</a>注册即可开用。</td>
-</tr>
-</table>
-<!-- sponsor-ad:end -->
-
-## 🌸 社团
-
-<table>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://siulight.com/#home"><img src="docs/img/siulight-logo.png" alt="微光漫摄" width="180"></a></td>
-<td valign="middle">
-  🌟感谢大家的支持！我们是一个来自南昌大学软件学院的学生技术兴趣社团，热爱开源，热爱二次元，热爱生活。❤️
-  <a href="https://siulight.com/">南昌大学微光漫摄</a>是一个以 ACGN 为坐标的二次元社团。我们因动画、漫画、游戏与影像相聚，在这里分享热爱、交流创作，也把喜欢的事变成作品。<br>
-  欢迎访问<a href="https://siulight.com/">微光漫摄官网</a>，认识更多同频的伙伴。</td>
-</tr>
-</table>
-
-> 在写论文或报告时，从 ChatGPT / DeepSeek 等 AI 网站中复制出来的公式在 Word 里总是乱码？Markdown 表格复制到 Excel 总是不行？**PasteMD 就是为了解决这个问题而生的，嘿嘿**
-> 
-> <img src="docs/gif/atri/igood.gif"
-     alt="我可是高性能的"
-     width="100">
-
-一个常驻托盘的小工具：
-从 **剪贴板读取 Markdown**，调用 **Pandoc** 转换为 DOCX，并自动插入到 **Word/WPS** 光标位置。
-
-**✨ 功能**：智能识别 Markdown 表格，一键粘贴到 **Excel**！
-
-**✨ 功能**：智能识别 HTML富文本，方便直接复制网页上的ai回复，一键粘贴到 **Word/WPS**！
-
-**✨ 新功能**：应用扩展（HTML+Markdown/HTML/Markdown/LaTeX/文件粘贴），可按应用/窗口标题匹配（如语雀/QQ等）。
-
-**✨ 新功能**：转换增强：支持按转换类型配置 Pandoc Filters；自动修复部分 LaTeX 语法与单 `$...$` 公式块。
-
----
-
-## 功能特点
-
-### 演示效果
-
-#### Markdown → Word/WPS
-
-<p align="center">
-  <img src="docs/gif/demo.gif" alt="演示动图" width="600">
-</p>
-
-#### 复制网页中的ai回复 → Word/WPS
-<p align="center">
-  <img src="docs/gif/demo-html.gif" alt="演示HTML动图" width="600">
-</p>
-
-#### Markdown 表格 → Excel
-<p align="center">
-  <img src="docs/gif/demo-excel.gif" alt="演示Excel动图" width="600">
-</p>
-
-#### 设置格式
-<p align="center">
-  <img src="docs/gif/demo-chage_format.gif" alt="演示设置格式动图" width="600">
-</p>
-
-
-* 全局热键（默认 `Ctrl+Shift+B`）一键粘贴 Markdown → DOCX。
-* **✨ 智能识别 Markdown 表格**，自动粘贴到 Excel。
-* **✨ 应用扩展**：为不同应用配置 HTML+Markdown/HTML/Markdown/LaTeX/文件 粘贴模式，支持按窗口标题匹配。
-* **✨ 转换增强**：按转换类型添加 Pandoc Filters，自动修复部分 LaTeX 语法与单 `$...$` 公式块。
-* 自动识别当前前台应用：Word 或 WPS。
-* 智能打开所需应用为Word/Excel。
-* 托盘菜单，可保留文件、查看日志/配置等。
-* 支持系统通知提醒。
-* 无黑框，无阻塞，稳定运行。
-
----
-
-## 📊 AI 网站兼容性测试
-
-以下是主流 AI 对话网站的复制粘贴兼容性测试结果：
-
-| AI 网站 | 复制 Markdown<br/>（无公式） | 复制 Markdown<br/>（含公式） | 复制网页内容<br/>（无公式） | 复制网页内容<br/>（含公式） |
-|---------|:----------------------------:|:----------------------------:|:---------------------------:|:---------------------------:|
-| **Kimi** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ⚠️ 无法显示公式 |
-| **DeepSeek** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-| **通义千问** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ⚠️ 无法显示公式 |
-| **豆包\*** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-| **智谱清言<br/>/ChatGLM** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-| **ChatGPT** | ✅ 完美支持 | ⚠️ 公式显示为代码 | ✅ 完美支持 | ✅ 完美支持 |
-| **Gemini** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-| **Grok** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-| **Claude** | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 | ✅ 完美支持 |
-
-**图例说明：**
-- ✅ **完美支持**：格式、样式、公式会均正确显示
-- ⚠️ **公式显示为代码**：数学公式会以 LaTeX 代码形式显示，需在 Word/WPS 中手动使用公式编辑器
-- ⚠️ **无法显示公式**：数学公式会丢失，需在 Word/WPS 中手动使用公式编辑器，自行输入公式内容
-- **豆包**：复制网页内容（含公式）前，需要在浏览器中开启“允许读取剪贴板”权限，可在 URL 地址栏左侧的图标中进行设置
-
-**测试说明：**
-1. **复制 Markdown**：点击 AI 回复中的"复制"按钮（通常复制的是 Markdown 格式，但是部分网站也会携带上html）
-2. **复制网页内容**：直接选中 AI 回复内容进行复制（复制的是 HTML 富文本）
-
----
-
-## 🚀使用方法
-
-1. 下载可执行文件（[Releases 页面](https://github.com/RICHQAQ/PasteMD/releases/)）：
-
-   * ~~**PasteMD\_vx.x.x.exe**：**便携版**，需要你本机已经安装好 **Pandoc** 并能在命令行运行。
-   若未安装，请到 [Pandoc 官网](https://pandoc.org/installing.html) 下载安装即可。~~ （不再提供，需要请自行编译）
-   * **PasteMD\_pandoc-Setup.exe**：**一体化安装包**，自带 Pandoc，不需要另外配置环境。
-
-2. 打开 Word、WPS 或 Excel，光标放在需要插入的位置。
-
-3. 复制 **Markdown** 或者 **网页内容** 到剪贴板，按下热键 **Ctrl+Shift+B**。
-
-4. 转换结果会自动插入到文档中：
-   - **Markdown 表格** → 自动粘贴到 Excel（如果 Excel 已打开）
-   - **普通 Markdown**/**网页内容** → 转换为 DOCX 并插入 Word/WPS
-
-5. 右下角会提示成功/失败。
-
----
-
-## ⚙️配置
-
-首次运行会在用户数据目录生成 `config.json`（Windows：`%APPDATA%\\PasteMD\\config.json`， MacOS: `~/Library/Application Support/PasteMD/config.json`），可手动编辑：
-
-```json
-{
-  "hotkey": "<ctrl>+<shift>+b",
-  "pandoc_path": "pandoc",
-  "reference_docx": null,
-  "save_dir": "%USERPROFILE%\\Documents\\pastemd",
-  "keep_file": false,
-  "notify": true,
-  "startup_notify": true,
-  "enable_excel": true,
-  "excel_keep_format": true,
-  "paste_delay_s": 0.3,
-  "no_app_action": "open",
-  "md_disable_first_para_indent": true,
-  "html_disable_first_para_indent": true,
-  "html_formatting": {
-    "strikethrough_to_del": true
-  },
-  "move_cursor_to_end": true,
-  "Keep_original_formula": false,
-  "enable_latex_replacements": true,
-  "fix_single_dollar_block": true,
-  "language": "zh-CN",
-  "pandoc_request_headers": [
-    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  ],
-  "pandoc_filters": [],
-  "pandoc_filters_by_conversion": {
-    "md_to_docx": [],
-    "html_to_docx": [],
-    "html_to_md": [],
-    "md_to_html": [],
-    "md_to_rtf": [],
-    "md_to_latex": []
-  },
-  "extensible_workflows": {
-    "html": {
-      "enabled": true,
-      "apps": [],
-      "keep_formula_latex": true
-    },
-    "md": {
-      "enabled": true,
-      "apps": [],
-      "html_formatting": {
-        "css_font_to_semantic": true,
-        "bold_first_row_to_header": true
-      }
-    },
-    "latex": {
-      "enabled": true,
-      "apps": []
-    },
-    "file": {
-      "enabled": true,
-      "apps": []
-    }
-  }
-}
-```
-
-字段说明：
-
-* `hotkey`：全局热键，语法如 `<ctrl>+<alt>+v`。
-* `pandoc_path`：Pandoc 可执行文件路径。
-* `reference_docx`：Pandoc 参考模板（可选）。
-* `save_dir`：保留文件时的保存目录。
-* `keep_file`：是否保留生成的 DOCX 文件。
-* `notify`：是否显示系统通知。
-* `startup_notify`：启动时是否显示提示通知。
-* **`enable_excel`**： - 是否启用智能识别 Markdown 表格并粘贴到 Excel（默认 true）。
-* **`excel_keep_format`**： - Excel 粘贴时是否保留 Markdown 格式（粗体、斜体、代码等），默认 true。
-* `paste_delay_s`：粘贴前的延迟秒数（win有的时候写入剪切板需要一点点时间）。
-* **`no_app_action`**： 当未检测到目标应用（如 Word/Excel）时的默认动作（默认 `"open"`）。可选值：`open`=自动打开、`save`=仅保存、`clipboard`=复制文件到剪贴板、`none`=无操作。
-* **`md_disable_first_para_indent`**： - Markdown 转换时是否禁用第一段的特殊格式，统一为正文样式（默认 true）。
-* **`html_formatting`**： - HTML 富文本转换时的格式化选项。
-  * **`strikethrough_to_del`**： - 是否将删除线 ~~ 转换为 `<del>` 标签，使得转换正确（默认 true）。
-* **`html_disable_first_para_indent`**： - HTML 富文本转换时是否禁用第一段的特殊格式，统一为正文样式（默认 true）。
-* **`move_cursor_to_end`**： - 插入内容后是否将光标移动到插入内容的末尾（默认 true）。
-* **`Keep_original_formula`**： - 是否保留原始数学公式（LaTeX 代码形式）。
-* `enable_latex_replacements`：自动修复部分不兼容的 LaTeX 语法（例如将 `{\\kern 10pt}` 替换为 `\\qquad`）。
-* `fix_single_dollar_block`：自动识别并修复单独一行的 `$ ... $` 公式块（转换为 `$$ ... $$`）。
-* `language`：界面语言，`zh-CN` 简体中文，`en-US` 英文，`ja-JP` 日语。
-* `pandoc_request_headers`：Pandoc 下载远程资源时附加的请求头（每行一个 `Header: Value`）。
-* **`pandoc_filters`**： - 自定义 Pandoc Filter 列表。可添加 `.lua` 脚本或可执行文件路径，Filter 将按照列表顺序依次执行。用于扩展 Pandoc 转换功能，如自定义格式处理、特殊语法转换等。默认为空列表。示例：`["%APPDATA%\\npm\\mermaid-filter.cmd"]` 可实现 Mermaid 图表支持。
-* `pandoc_filters_by_conversion`：按转换类型配置 Filters（如 `md_to_docx`、`html_to_md` 等）。
-* `extensible_workflows`：应用扩展配置（按应用/窗口标题匹配不同粘贴模式），详情见下文。
-
-修改后可在托盘菜单选择 **“重载配置/热键”** 立即生效。
-
----
-
-## 🔧 高级功能：自定义 Pandoc Filters
-
-### 什么是 Pandoc Filter？
-
-Pandoc Filter 是在文档转换过程中对内容进行自定义处理的插件程序。PasteMD 支持配置多个 Filter，按顺序依次处理文档内容，实现扩展功能。
-
-### 使用场景示例：Mermaid 图表支持
-
-如果您想在 Markdown 中使用 Mermaid 图表并正确转换到 Word，可以使用 [mermaid-filter](https://github.com/raghur/mermaid-filter)。
-
-**1. 安装 mermaid-filter**
+先安装 WPS Linux 版，然后在 Fedora 中安装运行依赖：
 
 ```bash
-npm install --global mermaid-filter
+sudo dnf install pandoc wl-clipboard python3-pyside6 python3-dbus python3-gobject libX11 libXtst
 ```
 
-*前置条件：需要先安装 [Node.js](https://nodejs.org/)*
-
-<details>
-<summary>⚠️ <b>故障排除：Chrome 下载失败</b></summary>
-
-安装 mermaid-filter 时需要下载 Chromium 浏览器。如果自动下载失败，可以手动下载：
-
-**步骤 1：查找所需的 Chromium 版本号**
-
-查看文件：`%APPDATA%\npm\node_modules\mermaid-filter\node_modules\puppeteer-core\lib\cjs\puppeteer\revisions.d.ts`
-
-找到类似以下内容：
-```typescript
-chromium: "1108766";
-```
-
-或在报错信息里，如：
-```bash
-npm error Error: Download failed: server returned code 502. URL: https://npmmirror.com/mirrors/chromium-browser-snapshots/Win_x64/1108766/chrome-win.zip
-```
-找到类似 `Win_x64/1108766` 的版本号。
-
-记下这个版本号（例如：`1108766`）。
-
-**步骤 2：下载 Chromium**
-
-根据上一步获取的版本号，下载对应的 Chromium：
-
-```
-https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/1108766/chrome-win.zip
-```
-
-（将 URL 中的 `1108766` 替换为你查到的版本号）
-
-**步骤 3：解压到指定目录**
-
-将下载的 `chrome-win.zip` 解压到以下目录：
-
-```
-%USERPROFILE%\.cache\puppeteer\chrome\win64-1108766\chrome-win
-```
-
-（目录中的 `1108766` 也需要替换为你的版本号）
-
-解压后，应该有 `chrome.exe` 位于：  
-`%USERPROFILE%\.cache\puppeteer\chrome\win64-1108766\chrome-win\chrome.exe`
-
-</details>
-
-**2. 配置到 PasteMD**
-
-方式一：通过设置界面
-- 打开 PasteMD 设置 → 转换选项卡 → Pandoc Filters
-- 点击「添加...」按钮
-- 选择 Filter 文件：`%APPDATA%\npm\mermaid-filter.cmd`
-- 保存设置
-
-方式二：编辑配置文件
-```json
-{
-  "pandoc_filters": [
-    "%APPDATA%\\npm\\mermaid-filter.cmd"
-  ]
-}
-```
-
-**3. 测试效果**
-
-复制以下 Markdown 内容并使用 PasteMD 转换：
-
-~~~markdown
-```mermaid
-graph LR
-    A[开始] --> B[处理]
-    B --> C[结束]
-```
-~~~
-
-Mermaid 图表将被渲染为图片并插入到 Word 文档中。
-
-### 更多 Filter 资源
-
-- [Pandoc Filters 官方列表](https://github.com/jgm/pandoc/wiki/Pandoc-Filters)
-- [Lua Filters 文档](https://pandoc.org/lua-filters.html)
-
----
-
-## 🧩 应用扩展（自定义粘贴工作流）
-
-设置 → **应用扩展** 中可以为不同应用配置粘贴模式，支持按窗口标题正则匹配：
-
-* **HTML** / **Markdown** / **LaTeX** / **文件**：按目标应用选择最合适的粘贴方式
-  - HTML、Markdown 适合语雀等富文本笔记软件
-  - LaTeX 适合overleaf等学术网站
-  - 文件 适合QQ、微信等作为附件粘贴的应用
-
-> 提示：同一个应用只建议配置一种工作流（避免冲突）；需要区分窗口标题时可使用“窗口名称匹配”。
-
-示例配置（节选）：
-
-> Windows 下 `id` 通常为应用的 exe 路径；macOS 为应用的 bundle id（建议通过设置界面添加，自动填充）。
-
-```json
-{
-  "extensible_workflows": {
-    "html": {
-      "enabled": true,
-      "apps": [
-        {
-          "name": "语雀",
-          "id": "/path/语雀.exe",
-          "window_patterns": []
-        }
-      ],
-      "keep_formula_latex": true
-    },
-    "latex": {
-      "enabled": true,
-      "apps": [
-        {
-          "name": "chrome",
-          "id": "/path/chrome.exe",
-          "window_patterns": [
-            ".*overleaf.*"
-          ]
-        }
-      ]
-    },
-    "file": {
-      "enabled": true,
-      "apps": [
-        {
-          "name": "QQ",
-          "id": "/path/qq.exe",
-          "window_patterns": []
-        }
-      ]
-    }
-  }
-}
-```
-
----
-
-## 托盘菜单
-
-* 快捷显示：当前全局热键（只读）。
-* 启用热键：开/关全局热键。
-* 弹窗通知：开/关系统通知。
-* 无应用时动作：当未检测到 Word/WPS/Excel 时的默认动作（自动打开/仅保存/复制到剪贴板/无操作）。
-* 插入后移动光标到末尾：插入内容后是否将光标移动到插入内容的末尾。
-* HTML 格式化：切换 **删除线 ~~ 转换为 `<del>`** 等 HTML 自动整理，使得可以正确转换（防止部分网页没有解析这些格式，导致从网页复制粘贴无法显示这些格式）。
-* 设置热键：通过图形界面录制并保存新的全局热键（即时生效）。
-* 保留生成文件：勾选后生成的 DOCX 会保存在 `save_dir`。
-* 打开保存目录、查看日志、编辑配置、重载配置/热键。
-* 版本：显示当前版本；可检查更新；若检测到新版本，会显示条目并可点击打开下载页面。
-* 退出：退出程序。
-
----
-
-## 📦从源码运行 / 打包
-
-建议 Python 3.12 (64位)。
+克隆这个 Fork：
 
 ```bash
-pip install -r requirements.txt
-python main.py
+git clone https://github.com/GMagisk9527/PasteMD-Linux.git
+cd PasteMD-Linux
 ```
 
-使用 PyInstaller：
+启动图形界面：
 
 ```bash
-pyinstaller --clean -F -w -n PasteMD
-  --icon assets\icons\logo.ico
-  --add-data "assets\icons;assets\icons"
-  --add-data "pastemd\i18n\locales\*.json;pastemd\i18n\locales"
-  --add-data "pastemd\lua;pastemd\lua"
-  --hidden-import plyer.platforms.win.notification
-  main.py
+python3 scripts/pastemd-linux.py
 ```
 
-生成的程序在 `dist/PasteMD.exe`。
+添加到 KDE 应用菜单：
 
----
+```bash
+python3 scripts/pastemd-linux.py --install
+```
 
-## ⭐ Star 
+## 使用
 
-感谢每一位 Star 的帮助，欢迎分享给更多小伙伴~，想要达成4096 star🌟，我会努力的喵
+1. 在网页或 AI 应用中复制 Markdown 或正文。
+2. 回到 WPS 的 `.docx` 文档，把光标放到插入位置。
+3. 按 `Ctrl+Shift+B`。
+4. 等待转换和自动粘贴完成。
 
-<img src="docs/gif/atri/likeyou.gif"
-     alt="喜欢你"
-     width="150">
+关闭主窗口后程序会驻留系统托盘。快捷键、自动粘贴、通知和登录自启可在“设置”页调整。
 
-[![Star History Chart](https://star-history.dera.page/svg?repos=RICHQAQ/PasteMD&type=date&legend=top-left)](https://star-history.dera.page/#RICHQAQ/PasteMD&type=date&legend=top-left)
+> WPS 的 `.wps` 文档会把粘贴的公式变成图片。需要可编辑公式时，请新建或另存为 `.docx`，然后从原始内容重新转换和粘贴。已经变成图片的公式不会因另存格式而恢复。
 
-## 🍵支持与打赏
+## 命令行
 
-如果有什么想法和好建议，欢迎issue交流！🤯🤯🤯
+转换当前剪贴板，随后手动在 WPS 中按 `Ctrl+V`：
 
+```bash
+python3 scripts/pastemd-wayland.py
+```
 
-也欢迎加入 **PasteMD使用交流群** 与其他用户交流：
-<div align="center">
-  <img src="docs/img/qrcode.jpg" alt="PasteMD交流群二维码" width="200" />
-  <br>
-  <sub>扫码加入PasteMD QQ交流群</sub>
-</div>
+生成内置公式样本：
 
-希望这个小工具对你有帮助，欢迎请作者👻喝杯咖啡☕，也欢迎来我小店看看哦～你的支持会让我更有动力持续修复问题、完善功能、适配更多场景并保持长期维护。感谢每一份支持！
-     
-🌟**我的小店**：欢迎光临，不定期上架好物～ [点击前往](https://pay.ldxp.cn/shop/S1024F64)
+```bash
+python3 scripts/pastemd-wayland.py --demo
+```
 
-<img src="docs/gif/atri/flower.gif"
-     alt="送你一朵小花"
-     width="150">
+生成并打开 DOCX：
 
+```bash
+python3 scripts/pastemd-wayland.py --open
+```
 
-| 支付宝 | 微信 |
-| --- | --- |
-| ![支付宝打赏](docs/pay/Alipay.jpg) | ![微信打赏](docs/pay/Weixinpay.png) |
+完整参数和故障排查见 [docs/LINUX.md](docs/LINUX.md)。
 
+## 测试
 
----
+```bash
+python3 -m unittest discover -s tests -p 'test_wayland_cli.py'
+python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
+```
 
-## License
+## 项目结构
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
-Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+```text
+pastemd/linux/              Linux 转换、界面、热键和自动粘贴实现
+scripts/pastemd-linux.py    图形界面入口
+scripts/pastemd-wayland.py  命令行兼容入口
+tests/                      Linux 版自动化测试
+docs/LINUX.md               完整使用和实现说明
+```
+
+## 许可证与致谢
+
+本项目继续使用原项目的 [GNU AGPL-3.0](LICENSE) 许可证。原作者、历史贡献者和第三方软件的权利不因 Fork 或目录精简而改变。
+
+- 上游项目：[RICHQAQ/PasteMD](https://github.com/RICHQAQ/PasteMD)
+- Linux Fork：[GMagisk9527/PasteMD-Linux](https://github.com/GMagisk9527/PasteMD-Linux)
+- 第三方组件：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

@@ -1,3 +1,0 @@
-"NSAppleEventsUsageDescription" = "PasteMD 需要此权限来识别当前活动的应用程序窗口（如 Word、WPS 等），以便准确地将内容插入到正确的目标应用中。";
-"NSScreenCaptureUsageDescription" = "PasteMD 需要录屏权限以读取窗口标题（macOS 会将窗口标题读取归为录屏权限）。";
-"NSInputMonitoringUsageDescription" = "PasteMD 需要此权限用于全局热键监听。";

@@ -198,9 +198,12 @@ class MainWindow(QMainWindow):
         launcher = QPushButton('添加到应用菜单')
         launcher.clicked.connect(self._install_launcher)
         controls.addWidget(launcher)
+        about = QPushButton('关于、原作者与许可证')
+        about.clicked.connect(self._show_about)
+        controls.addWidget(about)
         controls.addStretch()
         self.tabs.addTab(settings_tab, '设置')
-        footer = QLabel('Fedora · KDE Plasma · Wayland    |    关闭窗口后继续驻留托盘')
+        footer = QLabel('源自 RICHQAQ/PasteMD · GNU AGPL-3.0    |    关闭窗口后继续驻留托盘')
         footer.setWordWrap(True)
         layout.addWidget(footer)
         self.setCentralWidget(root)
@@ -218,6 +221,9 @@ class MainWindow(QMainWindow):
         prepare.triggered.connect(lambda: self.convert())
         demo = menu.addAction('测试公式')
         demo.triggered.connect(lambda: self.convert(demo=True))
+        menu.addSeparator()
+        about = menu.addAction('关于与许可证')
+        about.triggered.connect(self._show_about)
         menu.addSeparator()
         quit_action = menu.addAction('退出')
         quit_action.triggered.connect(self.request_quit)
@@ -378,6 +384,24 @@ class MainWindow(QMainWindow):
             self.report('已添加到应用菜单：' + str(target))
         except OSError as error:
             self.report(str(error), notify=True)
+
+    def _show_about(self):
+        box = QMessageBox(self)
+        box.setWindowTitle('关于 PasteMD Linux')
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(
+            '<h3>PasteMD Linux</h3>'
+            '<p>本项目派生自 <a href="https://github.com/RICHQAQ/PasteMD">'
+            'RICHQAQ/PasteMD</a>，原项目由 RICHQAQ 及历史贡献者开发。'
+            'Linux 适配由 GMagisk9527 维护。</p>'
+            '<p>软件按 GNU AGPL-3.0 发布，不提供任何担保；你可以按照许可证条款'
+            '复制、修改和再发布。</p>'
+        )
+        license_button = box.addButton('查看许可证', QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is license_button:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(ROOT / 'LICENSE')))
 
     def show_window(self):
         self.showNormal()

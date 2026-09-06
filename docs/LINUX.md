@@ -10,11 +10,11 @@ Linux 版现已提供 WPS 原生 DOCX 剪贴板、图形界面、系统托盘、
 先安装 WPS Linux 版，再安装转换与剪贴板依赖：
 
 ```bash
-sudo dnf install pandoc wl-clipboard python3-pyside6
+sudo dnf install pandoc wl-clipboard python3-pyside6 python3-dbus python3-gobject libX11 libXtst
 ```
 
 需要 Wayland 会话中的 XWayland（`DISPLAY`）。使用系统 `/usr/bin/python3`，确保能导入系统安装的 PySide6。
-当前方案不依赖 LibreOffice 或 WPS RPC 插件。
+当前方案不依赖 LibreOffice 或 WPS RPC 插件。PySide6 提供界面和 XWayland 剪贴板，D-Bus 与 GLib 用于 KDE 全局热键，X11/XTest 用于检查 WPS 焦点并发送粘贴按键。
 
 ## 推荐用法：热键转换并粘贴
 
@@ -123,3 +123,7 @@ python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
 ```
 
 参考：[Qt 剪贴板生命周期](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QClipboard.html)、[Pandoc 数学公式输出](https://pandoc.org/MANUAL.html#math)。
+
+## 上游与许可证
+
+本仓库派生自 [RICHQAQ/PasteMD](https://github.com/RICHQAQ/PasteMD)，保留原作者、历史贡献者和 GNU AGPL-3.0 许可证。Linux 适配的来源与版权说明见 [NOTICE.md](../NOTICE.md)，系统组件见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

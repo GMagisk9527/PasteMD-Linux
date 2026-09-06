@@ -1,3 +1,0 @@
-"NSAppleEventsUsageDescription" = "PasteMD needs permission to identify the frontmost app window (Word, WPS, etc.) so it can insert content into the correct target.";
-"NSScreenCaptureUsageDescription" = "PasteMD needs screen recording access to read window titles (macOS treats window title access as Screen Recording).";
-"NSInputMonitoringUsageDescription" = "PasteMD needs permission for global hotkey listening.";
