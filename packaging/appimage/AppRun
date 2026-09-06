@@ -1,0 +1,5 @@
+#!/bin/sh
+appdir="$(dirname "$(readlink -f "$0")")"
+bundle="$appdir/usr/lib/pastemd"
+export PATH="$bundle/_internal/bin:$PATH"
+exec "$bundle/pastemd-linux" "$@"

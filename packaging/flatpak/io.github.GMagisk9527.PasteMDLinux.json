@@ -1,0 +1,116 @@
+{
+  "$schema": "https://raw.githubusercontent.com/flatpak/flatpak-builder/main/data/flatpak-manifest.schema.json",
+  "app-id": "io.github.GMagisk9527.PasteMDLinux",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.11",
+  "sdk": "org.kde.Sdk",
+  "base": "io.qt.PySide.BaseApp",
+  "base-version": "6.11",
+  "command": "pastemd-linux",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=x11",
+    "--socket=wayland",
+    "--talk-name=org.kde.kglobalaccel",
+    "--filesystem=xdg-config/autostart:create"
+  ],
+  "cleanup": [
+    "/include",
+    "/lib/pkgconfig",
+    "/share/man"
+  ],
+  "modules": [
+    {
+      "name": "dbus-python",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dtests=disabled"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://dbus.freedesktop.org/releases/dbus-python/dbus-python-1.4.0.tar.xz",
+          "sha256": "c36b28f10ffcc8f1f798aca973bcc132f91f33eb9b6b8904381b4077766043d5"
+        }
+      ]
+    },
+    {
+      "name": "pygobject",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dpycairo=disabled",
+        "-Dtests=false"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://download.gnome.org/sources/pygobject/3.56/pygobject-3.56.3.tar.gz",
+          "sha256": "12760e4a0e3d04b6eb95e06f7a27e362c826d567ea613373a92c003b6c70d2d6"
+        }
+      ]
+    },
+    {
+      "name": "wl-clipboard",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dzshcompletiondir=no",
+        "-Dfishcompletiondir=no"
+      ],
+      "post-install": [
+        "install -Dm644 ../COPYING /app/share/licenses/wl-clipboard/COPYING"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/bugaevc/wl-clipboard/archive/refs/tags/v2.2.1.tar.gz",
+          "sha256": "6eb8081207fb5581d1d82c4bcd9587205a31a3d47bea3ebeb7f41aa1143783eb"
+        }
+      ]
+    },
+    {
+      "name": "pandoc",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 bin/pandoc /app/bin/pandoc",
+        "install -Dm644 COPYING.md COPYRIGHT -t /app/share/licenses/pandoc"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.7.0.2/pandoc-3.7.0.2-linux-amd64.tar.gz",
+          "sha256": "8f8f67fdd540b6519326b0ac49d5c55c5d5d15e43920e80a086e02c8aff83268"
+        },
+        {
+          "type": "file",
+          "url": "https://raw.githubusercontent.com/jgm/pandoc/3.7.0.2/COPYING.md",
+          "sha256": "e7ea3adeab955103a837b692ca0017cb3abbed0d3dccbfa499d6b2b825d698c3"
+        },
+        {
+          "type": "file",
+          "url": "https://raw.githubusercontent.com/jgm/pandoc/3.7.0.2/COPYRIGHT",
+          "sha256": "eb46b1cde09811dffc750b59672d42f3c74ce2e093e30a291023d570a91282e1"
+        }
+      ]
+    },
+    {
+      "name": "pastemd-linux",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -d /app/lib/pastemd /app/share/doc/pastemd-linux",
+        "cp -a pastemd scripts assets /app/lib/pastemd/",
+        "find /app/lib/pastemd -type d -name __pycache__ -prune -exec rm -rf {} +",
+        "install -Dm644 LICENSE NOTICE.md THIRD_PARTY_NOTICES.md -t /app/share/doc/pastemd-linux",
+        "install -Dm755 packaging/flatpak/pastemd-linux /app/bin/pastemd-linux",
+        "install -Dm644 packaging/common/io.github.GMagisk9527.PasteMDLinux.desktop /app/share/applications/io.github.GMagisk9527.PasteMDLinux.desktop",
+        "install -Dm644 packaging/common/io.github.GMagisk9527.PasteMDLinux.metainfo.xml /app/share/metainfo/io.github.GMagisk9527.PasteMDLinux.metainfo.xml",
+        "install -Dm644 packaging/common/io.github.GMagisk9527.PasteMDLinux.png /app/share/icons/hicolor/256x256/apps/io.github.GMagisk9527.PasteMDLinux.png"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../.."
+        }
+      ]
+    }
+  ]
+}

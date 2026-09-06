@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.GMagisk9527.PasteMDLinux</id>
+  <name>PasteMD Linux</name>
+  <summary>将 Markdown 和网页公式粘贴到 WPS</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <developer id="io.github.gmagisk9527">
+    <name>GMagisk9527</name>
+  </developer>
+  <description>
+    <p>PasteMD Linux 把 Markdown 或 AI 网页正文转换为 WPS 原生 DOCX 剪贴板内容，在 WPS 的 DOCX 文档中保留可编辑公式。</p>
+    <p>本应用派生自 RICHQAQ/PasteMD，并保留原项目的作者、贡献者和许可证声明。</p>
+  </description>
+  <launchable type="desktop-id">io.github.GMagisk9527.PasteMDLinux.desktop</launchable>
+  <url type="homepage">https://github.com/GMagisk9527/PasteMD-Linux</url>
+  <url type="vcs-browser">https://github.com/GMagisk9527/PasteMD-Linux</url>
+  <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-09-06">
+      <description><p>首个 Fedora KDE Wayland 与 WPS Linux 适配版本。</p></description>
+    </release>
+  </releases>
+</component>

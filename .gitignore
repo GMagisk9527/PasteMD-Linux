@@ -11,6 +11,9 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+.build-venv/
+.build-tools/
+.cache/releases/
 
 .idea/
 .vscode/

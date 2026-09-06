@@ -151,8 +151,10 @@ def set_clipboard_payload(payload):
         raise RuntimeError('缺少 PySide6：sudo dnf install python3-pyside6')
     encoded = json.dumps({key: base64.b64encode(value).decode('ascii')
                           for key, value in payload.items()}).encode()
+    command = ([sys.executable, '--serve-clipboard'] if getattr(sys, 'frozen', False)
+               else [sys.executable, str(Path(__file__).resolve()), '--serve-clipboard'])
     process = subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), '--serve-clipboard'],
+        command,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         start_new_session=True, env=dict(os.environ, QT_QPA_PLATFORM='xcb'),
     )

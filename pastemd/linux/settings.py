@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+FLATPAK_APP_ID = 'io.github.GMagisk9527.PasteMDLinux'
 DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True,
             'input_format': 'auto', 'paste_delay_ms': 250, 'notifications': True}
 
@@ -47,18 +48,29 @@ def save_settings(values):
         Path(name).unlink(missing_ok=True)
 
 
+def _quote(value):
+    value = str(value).replace('%', '%%').replace('\\', '\\\\\\\\')
+    for char in ('"', '`', '$'):
+        value = value.replace(char, '\\' + char)
+    return '"' + value + '"'
+
+
+def launch_command():
+    if os.environ.get('FLATPAK_ID'):
+        return 'flatpak run ' + _quote(os.environ['FLATPAK_ID'])
+    if os.environ.get('APPIMAGE'):
+        return _quote(Path(os.environ['APPIMAGE']).resolve())
+    return _quote(sys.executable) + ' ' + _quote(ROOT / 'scripts/pastemd-linux.py')
+
+
 def desktop_entry(minimized=False):
-    def quote(value):
-        value = str(value).replace('%', '%%').replace('\\', '\\\\\\\\')
-        for char in ('"', '`', '$'):
-            value = value.replace(char, '\\' + char)
-        return '"' + value + '"'
-    command = quote(sys.executable) + ' ' + quote(ROOT / 'scripts/pastemd-linux.py')
+    command = launch_command()
+    icon = os.environ.get('FLATPAK_ID') or 'pastemd-linux'
     if minimized:
         command += ' --minimized'
     return ('[Desktop Entry]\nType=Application\nName=PasteMD Linux\n'
             'Comment=将 Markdown 和网页公式粘贴到 WPS\n'
-            f'Exec={command}\nIcon={ROOT / "assets/icons/logo.png"}\n'
+            f'Exec={command}\nIcon={icon}\n'
             'Terminal=false\nCategories=Office;Utility;\nStartupNotify=false\n')
 
 
@@ -76,7 +88,12 @@ def set_autostart(enabled):
 
 
 def install_launcher():
+    if os.environ.get('FLATPAK_ID'):
+        return Path('/app/share/applications') / (os.environ['FLATPAK_ID'] + '.desktop')
     target = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'applications/pastemd-linux.desktop'
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(desktop_entry())
+    icon = target.parent.parent / 'icons/hicolor/256x256/apps/pastemd-linux.png'
+    icon.parent.mkdir(parents=True, exist_ok=True)
+    icon.write_bytes((ROOT / 'assets/icons/logo.png').read_bytes())
     return target

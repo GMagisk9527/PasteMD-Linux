@@ -16,7 +16,34 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 
 ## 安装
 
-先安装 WPS Linux 版，然后在 Fedora 中安装运行依赖：
+先安装 WPS Linux 版。普通用户建议从
+[Releases](https://github.com/GMagisk9527/PasteMD-Linux/releases) 下载首版安装包。
+
+### AppImage
+
+AppImage 已包含 PasteMD、Pandoc 和 `wl-paste`，下载后直接运行：
+
+```bash
+chmod +x PasteMD-Linux-linux-v0.1.0-x86_64.AppImage
+./PasteMD-Linux-linux-v0.1.0-x86_64.AppImage
+```
+
+### Flatpak
+
+下载 `.flatpak` 文件后安装并启动：
+
+```bash
+flatpak install --user ./PasteMD-Linux-linux-v0.1.0-x86_64.flatpak
+flatpak run io.github.GMagisk9527.PasteMDLinux
+```
+
+如系统尚未配置 Flathub，先按
+[Flathub 官方说明](https://flathub.org/setup/Fedora) 完成配置。安装包使用 KDE 6.11
+运行时和 Qt for Python 6.11 BaseApp，Flatpak 会在安装时补齐缺少的运行时。
+
+### 从源码运行
+
+在 Fedora 中安装运行依赖：
 
 ```bash
 sudo dnf install pandoc wl-clipboard python3-pyside6 python3-dbus python3-gobject libX11 libXtst
@@ -81,6 +108,13 @@ python3 -m unittest discover -s tests -p 'test_wayland_cli.py'
 python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
 ```
 
+发布包还可以执行不修改剪贴板的转换自检：
+
+```bash
+./PasteMD-Linux-linux-v0.1.0-x86_64.AppImage --appimage-extract-and-run --package-self-test
+flatpak run io.github.GMagisk9527.PasteMDLinux --package-self-test
+```
+
 ## 项目结构
 
 ```text
@@ -89,6 +123,8 @@ scripts/pastemd-linux.py    图形界面入口
 scripts/pastemd-wayland.py  命令行兼容入口
 tests/                      Linux 版自动化测试
 docs/LINUX.md               完整使用和实现说明
+packaging/appimage/         AppImage 构建脚本
+packaging/flatpak/          Flatpak 清单和构建脚本
 ```
 
 ## 许可证与致谢

@@ -440,8 +440,24 @@ def main(argv=None):
     parser.add_argument('--minimized', action='store_true', help='启动后驻留托盘')
     parser.add_argument('--trigger', action='store_true', help='通知已运行实例转换并粘贴')
     parser.add_argument('--install', action='store_true', help='添加应用菜单入口并退出')
+    parser.add_argument('--serve-clipboard', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--package-self-test', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--smoke-test', metavar='PNG', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.serve_clipboard:
+        return cli.serve_clipboard()
+    if args.package_self_test:
+        missing = [name for name in ('pandoc', 'wl-paste') if not shutil.which(name)]
+        if missing:
+            print('缺少打包组件：' + '、'.join(missing), file=sys.stderr)
+            return 1
+        document = cli.prepare_document(
+            cli.DEMO_MARKDOWN.encode('utf-8'), 'markdown' + cli.MATH_EXTENSIONS)
+        plain = cli.run(['pandoc', '--from', 'json', '--to', 'plain'], document)
+        payload = cli.native_clipboard_payload(document, plain)
+        print('PACKAGE-SELF-TEST OK: native DOCX bytes=' +
+              str(len(payload['Kingsoft WPS 9.0 Format'])))
+        return 0
     if args.install:
         print(install_launcher())
         return 0

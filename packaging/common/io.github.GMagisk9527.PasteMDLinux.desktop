@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PasteMD Linux
+Comment=将 Markdown 和网页公式粘贴到 WPS
+Exec=pastemd-linux
+Icon=io.github.GMagisk9527.PasteMDLinux
+Terminal=false
+Categories=Office;
+StartupNotify=false
+Keywords=Markdown;WPS;DOCX;Formula;Clipboard;

@@ -48,6 +48,16 @@ class DesktopTests(unittest.TestCase):
         launcher = settings.install_launcher()
         self.assertIn('pastemd-linux.py', launcher.read_text())
         self.assertIn('Terminal=false', launcher.read_text())
+        self.assertTrue((Path(self.temp.name) / 'icons/hicolor/256x256/apps/pastemd-linux.png').exists())
+
+    def test_packaged_launch_commands(self):
+        with patch.dict(os.environ, {'APPIMAGE': '/tmp/PasteMD.AppImage'}, clear=False):
+            self.assertIn('/tmp/PasteMD.AppImage', settings.desktop_entry())
+        with patch.dict(os.environ, {'FLATPAK_ID': settings.FLATPAK_APP_ID}, clear=False):
+            entry = settings.desktop_entry(minimized=True)
+            self.assertIn('flatpak run', entry)
+            self.assertIn(settings.FLATPAK_APP_ID, entry)
+            self.assertIn('--minimized', entry)
 
     def test_shortcut_rejects_unmodified_or_multiple_keys(self):
         for text in ('A', '', 'Ctrl+B, Ctrl+C'):

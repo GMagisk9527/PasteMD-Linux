@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/python3 /app/lib/pastemd/scripts/pastemd-linux.py "$@"
