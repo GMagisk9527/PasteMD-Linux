@@ -1,10 +1,9 @@
 # PasteMD
 
-> **Linux Fork（实验版）**：新增 Fedora + Wayland + WPS 的原生公式剪贴板入口（目标文档请使用 `.docx`）。
-> 使用方式、额外依赖和验证限制见 [Linux 使用说明](docs/LINUX.md)。
-> 可运行 `python3 scripts/pastemd-wayland.py --demo` 生成 Ctrl+V 测试样本。
-> 图形界面运行 `python3 scripts/pastemd-linux.py`，支持 KDE Wayland 全局热键、托盘与自动粘贴。
-> 以下保留上游项目说明；Linux 图形界面目前独立于上游的 Windows/macOS 设置界面。
+> **PasteMD Linux**：已适配 Fedora、KDE Wayland 和 WPS Linux，支持图形界面、系统托盘、全局热键及自动粘贴。
+> 在 AI 页面复制内容，回到 WPS 的 `.docx` 文档后按 `Ctrl+Shift+B`，即可粘贴可编辑公式。
+> WPS 的 `.wps` 文档会把这种公式粘贴成图片；需要编辑公式时请新建或另存为 `.docx` 后重新粘贴。
+> 安装、启动、测试及故障排查见 [Linux 使用说明](docs/LINUX.md)。以下正文保留上游项目说明。
 <p align="center">
   <img src="assets/icons/logo.png" alt="PasteMD" width="160" height="160">
 </p>

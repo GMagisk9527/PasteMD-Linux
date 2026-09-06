@@ -1,8 +1,9 @@
-# Fedora + Wayland + WPS（实验性入口）
+# PasteMD Linux：Fedora + KDE Wayland + WPS
 
-2026-09-05：新增 WPS 原生 DOCX 剪贴板链路，沿用 AGPL-3.0。
-用户已在 Fedora Wayland + WPS 的 `.docx` 目标文档中确认粘贴正常；使用 `.wps` 格式时曾出现公式变成图片。
-**目标文档请使用 `.docx` 格式。** 上游完整托盘功能尚未适配 Linux。
+Linux 版现已提供 WPS 原生 DOCX 剪贴板、图形界面、系统托盘、KDE 全局热键和焦点保护自动粘贴，沿用 AGPL-3.0。
+已在 Fedora、KDE Wayland 和 WPS Linux 的 `.docx` 文档中验证可编辑公式。
+
+> **文档必须使用 `.docx` 格式。** WPS 的 `.wps` 格式会把粘贴的公式变成图片；另存为 `.docx` 不会修复已经图片化的公式，需要从原内容重新转换和粘贴。
 
 ## 安装
 
@@ -15,14 +16,29 @@ sudo dnf install pandoc wl-clipboard python3-pyside6
 需要 Wayland 会话中的 XWayland（`DISPLAY`）。使用系统 `/usr/bin/python3`，确保能导入系统安装的 PySide6。
 当前方案不依赖 LibreOffice 或 WPS RPC 插件。
 
-## 直接 Ctrl+V
+## 推荐用法：热键转换并粘贴
+
+首次启动图形界面：
+
+```bash
+python3 scripts/pastemd-linux.py
+```
+
+随后按以下步骤使用：
+
+1. 在网页或 AI 应用中复制 Markdown 或正文。
+2. 回到 WPS 的 `.docx` 文档，把光标放在需要插入的位置。
+3. 按 `Ctrl+Shift+B`。
+4. 等待 PasteMD 完成转换并自动粘贴。
+
+关闭主窗口后程序继续驻留系统托盘。可以在“设置”页修改快捷键、关闭自动粘贴或开启登录自启。
+
+## 命令行手动转换
 
 1. 在 WPS 中打开或新建 `.docx` 文档。原文件为 `.wps` 时先另存为 `.docx`，再重新粘贴。
 2. 复制 Markdown 或 AI 网页正文。
 3. 在仓库目录执行 `python3 scripts/pastemd-wayland.py`。
 4. 等待“公式富文本已就绪”的通知或终端提示，切回 WPS 按 Ctrl+V。
-
-已经变成图片的公式不会因为另存为 `.docx` 自动恢复，需要重新从原始内容转换、粘贴。
 
 默认写入 WPS 原生剪贴板，不打开中间文档。转换成功后原剪贴板会被替换，不自动恢复。
 再次转换前重新复制来源。剪贴板服务在后台保有转换结果，复制其他内容后自动退出。
@@ -31,16 +47,9 @@ sudo dnf install pandoc wl-clipboard python3-pyside6
 希望强制使用复制按钮产生的 Markdown 时，使用 `--input markdown`。
 支持 `$…$`、`$$…$$`、`\(…\)`、`\[…\]` 数学分隔符。
 
-## 图形界面、托盘和热键
+## 图形界面和系统集成
 
-启动图形界面：
-
-```bash
-python3 scripts/pastemd-linux.py
-```
-
-界面提供输入格式选择、公式测试、DOCX 备选输出、快捷键配置、自动粘贴、登录自启和运行记录。
-默认快捷键是 `Ctrl+Shift+B`。复制内容并回到 WPS 的 `.docx` 文档后按快捷键，程序会转换并自动发送 Ctrl+V。
+界面提供输入格式选择、公式测试、DOCX 备选输出、快捷键配置、自动粘贴、登录自启和运行记录。默认快捷键是 `Ctrl+Shift+B`。
 
 自动粘贴会核对转换前后的 WPS 窗口及文档标题，并等待快捷键松开；焦点发生变化时只准备剪贴板，不会向其他窗口发送按键。
 关闭主窗口后程序驻留系统托盘，可从托盘再次打开或退出。
