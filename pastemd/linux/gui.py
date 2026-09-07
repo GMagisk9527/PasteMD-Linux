@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
                'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
                'notifications': self.notifications.isChecked()}
         old = dict(self.settings)
+        old_autostart = autostart_path().exists()
         try:
             if new['hotkey_enabled']:
                 KdeHotkey.key_value(new['hotkey'])
@@ -301,12 +302,20 @@ class MainWindow(QMainWindow):
             save_settings(new)
             set_autostart(self.autostart.isChecked())
         except Exception as error:
-            # Keep a working previous shortcut if saving the replacement failed.
-            if self.hotkey and old['hotkey_enabled']:
+            # Restore runtime and on-disk state if either settings file failed.
+            if self.hotkey:
                 try:
-                    self.hotkey.bind(old['hotkey'])
+                    if old['hotkey_enabled']:
+                        self.hotkey.bind(old['hotkey'])
+                    else:
+                        self.hotkey.unbind()
                 except Exception:
                     pass
+            try:
+                save_settings(old)
+                set_autostart(old_autostart)
+            except Exception:
+                pass
             self.report('设置未完整保存：' + str(error), notify=True)
             return
         self.settings = new
@@ -348,9 +357,12 @@ class MainWindow(QMainWindow):
 
     def _converted(self, result):
         if 'path' in result:
-            if shutil.which('wps'):
-                cli.subprocess.Popen(['wps', result['path']], stdout=cli.subprocess.DEVNULL, stderr=cli.subprocess.DEVNULL, start_new_session=True)
-            self.report('DOCX 已保存：' + result['path'], notify=True)
+            try:
+                cli.open_in_wps(result['path'])
+                message = 'DOCX 已保存并交给 WPS 打开：' + result['path']
+            except (OSError, RuntimeError) as error:
+                message = str(error) + ' ' + result['path']
+            self.report(message, notify=True)
             return
         if self.want_paste and self.target:
             self.paste_pending = True

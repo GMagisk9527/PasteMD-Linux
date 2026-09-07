@@ -75,6 +75,10 @@ def desktop_entry(minimized=False):
 
 
 def autostart_path():
+    if os.environ.get('FLATPAK_ID'):
+        # Flatpak redirects XDG_CONFIG_HOME to its private app directory. KDE
+        # reads the host autostart directory, exposed by our filesystem grant.
+        return Path.home() / '.config' / 'autostart' / 'pastemd-linux.desktop'
     return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'autostart' / 'pastemd-linux.desktop'
 
 

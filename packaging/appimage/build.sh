@@ -2,19 +2,22 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="linux-v0.1.0"
+version="linux-v0.1.1"
 appdir="$root/build/appimage/PasteMD-Linux.AppDir"
 pyinstaller="$root/.build-venv/bin/pyinstaller"
+meson="$root/.build-venv/bin/meson"
 appimagetool="$root/.build-tools/appimagetool-x86_64.AppImage"
 runtime="$root/.build-tools/runtime-x86_64-20251108"
 output="$root/dist/PasteMD-Linux-$version-x86_64.AppImage"
 cache="$root/.cache/releases"
 pandoc_archive="$cache/pandoc-3.7.0.2-linux-amd64.tar.gz"
 wl_archive="$cache/wl-clipboard-v2.2.1.tar.gz"
+wayland_protocols_archive="$cache/wayland-protocols-1.24.tar.xz"
 
 test -x "$pyinstaller"
 test -x "$appimagetool"
-test -x /usr/bin/wl-paste
+test -x "$meson"
+command -v ninja >/dev/null
 
 if [[ ! -f "$runtime" ]]; then
   curl -fL https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
@@ -30,6 +33,9 @@ test -f "$pandoc_archive" || curl -fL \
 test -f "$wl_archive" || curl -fL \
   https://github.com/bugaevc/wl-clipboard/archive/refs/tags/v2.2.1.tar.gz \
   -o "$wl_archive"
+test -f "$wayland_protocols_archive" || curl -fL \
+  https://wayland.freedesktop.org/releases/wayland-protocols-1.24.tar.xz \
+  -o "$wayland_protocols_archive"
 test -f "$cache/pandoc-COPYING.md" || curl -fL \
   https://raw.githubusercontent.com/jgm/pandoc/3.7.0.2/COPYING.md \
   -o "$cache/pandoc-COPYING.md"
@@ -39,6 +45,7 @@ test -f "$cache/pandoc-COPYRIGHT" || curl -fL \
 printf '%s  %s\n' \
   8f8f67fdd540b6519326b0ac49d5c55c5d5d15e43920e80a086e02c8aff83268 "$pandoc_archive" \
   6eb8081207fb5581d1d82c4bcd9587205a31a3d47bea3ebeb7f41aa1143783eb "$wl_archive" \
+  bff0d8cffeeceb35159d6f4aa6bab18c807b80642c9d50f66cba52ecf7338bc2 "$wayland_protocols_archive" \
   e7ea3adeab955103a837b692ca0017cb3abbed0d3dccbfa499d6b2b825d698c3 "$cache/pandoc-COPYING.md" \
   eb46b1cde09811dffc750b59672d42f3c74ce2e093e30a291023d570a91282e1 "$cache/pandoc-COPYRIGHT" | sha256sum -c -
 
@@ -46,8 +53,16 @@ rm -rf "$root/build/appimage"
 mkdir -p "$appdir/usr/lib" "$appdir/usr/share/doc/pastemd-linux" "$root/dist"
 mkdir -p "$root/build/appimage/vendor"
 tar -xzf "$pandoc_archive" -C "$root/build/appimage/vendor"
-tar -xzf "$wl_archive" -C "$root/build/appimage/vendor" wl-clipboard-2.2.1/COPYING
+tar -xzf "$wl_archive" -C "$root/build/appimage/vendor"
 pandoc="$root/build/appimage/vendor/pandoc-3.7.0.2/bin/pandoc"
+wl_source="$root/build/appimage/vendor/wl-clipboard-2.2.1"
+wl_build="$root/build/appimage/wl-clipboard-build"
+mkdir -p "$wl_source/subprojects/packagecache"
+cp "$wayland_protocols_archive" "$wl_source/subprojects/packagecache/"
+"$meson" setup "$wl_build" "$wl_source" --buildtype=release \
+  -Dzshcompletiondir=no -Dfishcompletiondir=no
+"$meson" compile -C "$wl_build" wl-paste
+wl_paste="$wl_build/src/wl-paste"
 
 "$pyinstaller" --noconfirm --clean --onedir --name pastemd-linux \
   --paths "$root" --collect-submodules pastemd \
@@ -62,7 +77,7 @@ pandoc="$root/build/appimage/vendor/pandoc-3.7.0.2/bin/pandoc"
   --add-data "$cache/pandoc-COPYING.md:licenses/pandoc" \
   --add-data "$cache/pandoc-COPYRIGHT:licenses/pandoc" \
   --add-data "$root/build/appimage/vendor/wl-clipboard-2.2.1/COPYING:licenses/wl-clipboard" \
-  --add-binary "$pandoc:bin" --add-binary "/usr/bin/wl-paste:bin" \
+  --add-binary "$pandoc:bin" --add-binary "$wl_paste:bin" \
   "$root/scripts/pastemd-linux.py"
 
 mv "$root/build/appimage/pyinstaller-dist/pastemd-linux" "$appdir/usr/lib/pastemd"
@@ -88,6 +103,7 @@ sed -i 's/^Icon=.*/Icon=pastemd-linux/' \
 (cd "$root" && LC_ALL=C.UTF-8 ARCH=x86_64 \
   ./.build-tools/appimagetool-x86_64.AppImage --appimage-extract-and-run \
   --no-appstream \
+  --mksquashfs-opt=-processors --mksquashfs-opt=4 \
   --runtime-file ./.build-tools/runtime-x86_64-20251108 \
   build/appimage/PasteMD-Linux.AppDir dist/"$(basename "$output")")
 chmod +x "$output"

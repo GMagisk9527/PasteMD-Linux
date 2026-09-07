@@ -72,9 +72,13 @@ def run(command, data=None):
 
 
 def read_clipboard(input_format):
-    types = run(['wl-paste', '--list-types']).decode().splitlines()
-    if input_format != 'markdown' and 'text/html' in types:
-        return run(['wl-paste', '--no-newline', '--type', 'text/html']), 'html' + MATH_EXTENSIONS
+    types = [kind.strip() for kind in
+             run(['wl-paste', '--list-types']).decode('utf-8', 'replace').splitlines()
+             if kind.strip()]
+    html = next((kind for kind in types
+                 if kind.partition(';')[0].strip().lower() == 'text/html'), None)
+    if input_format != 'markdown' and html:
+        return run(['wl-paste', '--no-newline', '--type', html]), 'html' + MATH_EXTENSIONS
     if input_format == 'html':
         raise RuntimeError('剪贴板没有 text/html；请复制网页正文或使用 --input markdown。')
     plain = next((t for t in types if t.lower().startswith('text/plain')), None)
@@ -89,6 +93,20 @@ def notify(message):
             run(['notify-send', 'PasteMD', message])
         except (OSError, RuntimeError, subprocess.TimeoutExpired):
             pass
+
+
+def open_in_wps(path):
+    """Open a generated document in host WPS from source, AppImage or Flatpak."""
+    if os.environ.get('FLATPAK_ID'):
+        command = ['flatpak-spawn', '--host', 'wps', str(path)]
+        missing = 'Flatpak 缺少 flatpak-spawn，DOCX 已保存但无法打开 WPS。'
+    else:
+        command = ['wps', str(path)]
+        missing = '找不到 WPS 命令，DOCX 已保存但无法自动打开。'
+    if not shutil.which(command[0]):
+        raise RuntimeError(missing)
+    return subprocess.Popen(command, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def math_count(value):
@@ -199,7 +217,7 @@ def main(argv=None):
             raise RuntimeError('请在 Wayland 桌面会话中运行。')
         required = ['pandoc'] + ([] if args.demo else ['wl-paste'])
         if open_docx:
-            required.append('wps')
+            required.append('flatpak-spawn' if os.environ.get('FLATPAK_ID') else 'wps')
         missing = [tool for tool in required if not shutil.which(tool)]
         if missing:
             raise RuntimeError('缺少命令：' + ', '.join(missing) + '。转换依赖：sudo dnf install pandoc wl-clipboard python3-pyside6；WPS 需单独安装。')
@@ -224,8 +242,7 @@ def main(argv=None):
                 raise
             print(name)
             if open_docx:
-                subprocess.Popen(['wps', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 start_new_session=True)
+                open_in_wps(name)
             message = 'DOCX 已保存：' + name
             notify(message)
             print(message)

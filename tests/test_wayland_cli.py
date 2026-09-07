@@ -16,9 +16,26 @@ class WaylandTests(unittest.TestCase):
             self.assertEqual(cli.read_clipboard('auto'), (b'<p>Hello</p>', 'html' + cli.MATH_EXTENSIONS))
             self.assertIn('text/html', run.call_args.args[0])
 
+    def test_auto_accepts_html_type_with_charset(self):
+        advertised = 'text/html;charset=utf-8'
+        with patch.object(cli, 'run', side_effect=[
+                ('text/plain\n' + advertised + '\n').encode(), b'<p>Hello</p>']) as run:
+            content, reader = cli.read_clipboard('auto')
+        self.assertEqual(content, b'<p>Hello</p>')
+        self.assertEqual(reader, 'html' + cli.MATH_EXTENSIONS)
+        self.assertEqual(run.call_args.args[0][-1], advertised)
+
     def test_markdown_override(self):
         with patch.object(cli, 'run', side_effect=[b'text/html\ntext/plain;charset=utf-8\n', b'# Hello']):
             self.assertEqual(cli.read_clipboard('markdown'), (b'# Hello', 'markdown' + cli.MATH_EXTENSIONS))
+
+    def test_flatpak_opens_docx_through_host_wps(self):
+        with patch.dict(os.environ, FLATPAK_ID='io.github.example.App'), \
+                patch.object(cli.shutil, 'which', return_value='/usr/bin/flatpak-spawn'), \
+                patch.object(cli.subprocess, 'Popen') as process:
+            cli.open_in_wps('/tmp/example.docx')
+        self.assertEqual(process.call_args.args[0],
+                         ['flatpak-spawn', '--host', 'wps', '/tmp/example.docx'])
 
     def test_conversion_failure_does_not_write_clipboard(self):
         with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'run', side_effect=RuntimeError('conversion failed')), patch.object(cli, 'notify'), patch.object(cli.subprocess, 'run') as process:

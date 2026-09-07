@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.1" date="2026-09-07">
+      <description>
+        <p>修复重新启动后的快捷键恢复、Flatpak 登录自启与宿主 WPS 打开，并改进网页剪贴板识别和设置回滚。</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-06">
       <description><p>首个 Fedora KDE Wayland 与 WPS Linux 适配版本。</p></description>
     </release>

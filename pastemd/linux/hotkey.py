@@ -59,14 +59,16 @@ class KdeHotkey(QObject):
         import dbus
         key = self.key_value(sequence)
         self._connect()
-        # Re-registering our own current shortcut is valid. KDE reports it as
-        # unavailable while the action is active, so skip that check when the
-        # normalized sequence did not change.
+        # KDE keeps this action after setInactive(). On the next launch its key
+        # is unavailable globally, but it is still ours and can be restored.
         normalized = QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)
         unchanged = self.bound and normalized == self.sequence
         if unchanged:
             return
-        if not self.iface.isGlobalShortcutAvailable(dbus.Int32(key), self.component, timeout=3):
+        current = {int(saved) for saved in self.iface.shortcut(self.action, timeout=3)}
+        owned = key in current
+        if not owned and not self.iface.isGlobalShortcutAvailable(
+                dbus.Int32(key), self.component, timeout=3):
             raise RuntimeError('这个快捷键已被其他应用占用，请换一个组合键。')
         self.iface.doRegister(self.action, timeout=3)
         # KDE SetPresent=2, NoAutoloading=4: activate this explicitly chosen binding.

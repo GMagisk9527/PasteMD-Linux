@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QKeySequence
 from pastemd.linux import settings
 from pastemd.linux.gui import MainWindow
 from pastemd.linux.hotkey import KdeHotkey
@@ -59,6 +60,16 @@ class DesktopTests(unittest.TestCase):
             self.assertIn(settings.FLATPAK_APP_ID, entry)
             self.assertIn('--minimized', entry)
 
+    def test_flatpak_autostart_uses_host_kde_directory(self):
+        with patch.dict(os.environ, {
+                'FLATPAK_ID': settings.FLATPAK_APP_ID,
+                'HOME': self.temp.name,
+                'XDG_CONFIG_HOME': '/private-flatpak-config'}, clear=False):
+            expected = Path(self.temp.name) / '.config/autostart/pastemd-linux.desktop'
+            self.assertEqual(settings.autostart_path(), expected)
+            settings.set_autostart(True)
+            self.assertTrue(expected.is_file())
+
     def test_shortcut_rejects_unmodified_or_multiple_keys(self):
         for text in ('A', '', 'Ctrl+B, Ctrl+C'):
             with self.assertRaises(ValueError):
@@ -73,6 +84,35 @@ class DesktopTests(unittest.TestCase):
         hotkey.sequence = 'Ctrl+Shift+B'
         hotkey.bind('Ctrl+Shift+B')
         hotkey.iface.isGlobalShortcutAvailable.assert_not_called()
+
+    def test_restart_restores_its_own_inactive_shortcut(self):
+        hotkey = KdeHotkey()
+        hotkey.bus = Mock()
+        hotkey.iface = Mock()
+        key = KdeHotkey.key_value('Ctrl+Shift+B')
+        hotkey.iface.shortcut.return_value = [key]
+        hotkey.iface.isGlobalShortcutAvailable.return_value = False
+        hotkey.iface.setShortcut.return_value = [key]
+
+        hotkey.bind('Ctrl+Shift+B')
+
+        hotkey.iface.isGlobalShortcutAvailable.assert_not_called()
+        hotkey.iface.doRegister.assert_called_once()
+        self.assertTrue(hotkey.bound)
+
+    def test_failed_save_disables_new_hotkey_when_old_setting_was_disabled(self):
+        window = self.window()
+        window.smoke = False
+        window.settings['hotkey_enabled'] = False
+        window.hotkey = Mock()
+        window.hotkey_enabled.setChecked(True)
+        window.key_edit.setKeySequence(QKeySequence('Ctrl+Shift+B'))
+        with patch('pastemd.linux.gui.save_settings',
+                   side_effect=OSError('read-only settings')):
+            window.save()
+        window.hotkey.bind.assert_called_once_with('Ctrl+Shift+B')
+        window.hotkey.unbind.assert_called_once()
+        self.assertIn('设置未完整保存', window.log.toPlainText())
 
     def window(self):
         window = MainWindow(smoke=True)
