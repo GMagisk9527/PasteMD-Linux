@@ -36,13 +36,15 @@ class KdeHotkey(QObject):
         from dbus.mainloop.glib import DBusGMainLoop
         from gi.repository import GLib
         DBusGMainLoop(set_as_default=True)
-        self.bus = dbus.SessionBus()
-        self.context = GLib.MainContext.default()
-        if not self.bus.name_has_owner('org.kde.kglobalaccel'):
-            self.bus = None
+        bus = dbus.SessionBus()
+        context = GLib.MainContext.default()
+        if not bus.name_has_owner('org.kde.kglobalaccel'):
             raise RuntimeError('此桌面没有 KDE 全局快捷键服务，可在系统快捷键设置中绑定 --trigger。')
-        self.iface = dbus.Interface(self.bus.get_object('org.kde.kglobalaccel', '/kglobalaccel'), 'org.kde.KGlobalAccel')
-        self.matches.append(self.bus.add_signal_receiver(self._pressed, signal_name='globalShortcutPressed', dbus_interface='org.kde.kglobalaccel.Component', bus_name='org.kde.kglobalaccel'))
+        iface = dbus.Interface(bus.get_object('org.kde.kglobalaccel', '/kglobalaccel'), 'org.kde.KGlobalAccel')
+        match = bus.add_signal_receiver(self._pressed, signal_name='globalShortcutPressed', dbus_interface='org.kde.kglobalaccel.Component', bus_name='org.kde.kglobalaccel')
+        # Publish connection state only after every setup step succeeds.
+        self.bus, self.iface, self.context = bus, iface, context
+        self.matches.append(match)
         self.timer.start(20)
 
     def _dispatch(self):

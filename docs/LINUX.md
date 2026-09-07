@@ -127,3 +127,20 @@ python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
 ## 上游与许可证
 
 本仓库派生自 [RICHQAQ/PasteMD](https://github.com/RICHQAQ/PasteMD)，保留原作者、历史贡献者和 GNU AGPL-3.0 许可证。Linux 适配的来源与版权说明见 [NOTICE.md](../NOTICE.md)，系统组件见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
+
+### 打包体积
+
+Flatpak 基于 PySide BaseApp 构建，清理阶段通过其自带脚本移除未使用的
+QtWebEngine 和 NumPy，并去掉绑定生成器、LLVM/Clang 和 PyOpenGL。
+保留 PySide/Shiboken 运行库、Pandoc、D-Bus 和剪贴板依赖。
+修改清理规则后应执行 `--package-self-test` 和离屏 GUI 冒烟检查。
+Flatpak 安装时所需的共享 KDE runtime 不包含在 `.flatpak` 文件体积中。
+
+AppImage 使用 Zstandard 19 级压缩和最多 4 个压缩线程。Pandoc 与 Qt
+运行库占主要空间，提高压缩等级的收益有限，但会增加构建时间。
+
+AppImage 的自定义 PyInstaller hooks 在依赖扫描前筛选 Qt 插件：保留
+GIF/JPEG/ICO/SVG/WebP（PNG 由 Qt 内置支持）、Fcitx/IBus 输入法及
+桌面平台插件；不带入 PDF/RAW/HEIF/AVIF 等额外图像解码插件、虚拟键盘、
+GTK/KDE 平台主题和 Breeze 样式。界面使用 Qt 默认样式，外观可能与系统
+主题不同。这些规则仅影响界面插件，不裁剪 Pandoc 的 DOCX 转换功能。

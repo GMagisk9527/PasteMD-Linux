@@ -18,7 +18,15 @@
   "cleanup": [
     "/include",
     "/lib/pkgconfig",
-    "/share/man"
+    "/share/man",
+    "/bin/shiboken6*",
+    "/lib/libLLVM.so*",
+    "/lib/libclang*.so*",
+    "/lib/python*/site-packages/shiboken6_generator*",
+    "/lib/python*/site-packages/OpenGL",
+    "/lib/python*/site-packages/pyopengl-*.dist-info",
+    "/lib/python*/site-packages/PySide6/QtPdf*",
+    "/cleanup-BaseApp.sh"
   ],
   "modules": [
     {
@@ -113,5 +121,8 @@
         }
       ]
     }
+  ],
+  "cleanup-commands": [
+    "BASEAPP_REMOVE_WEBENGINE=1 BASEAPP_DISABLE_NUMPY=1 /app/cleanup-BaseApp.sh"
   ]
 }

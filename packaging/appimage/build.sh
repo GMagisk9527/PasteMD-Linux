@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="linux-v0.1.1"
+version="linux-v0.1.2"
 appdir="$root/build/appimage/PasteMD-Linux.AppDir"
 pyinstaller="$root/.build-venv/bin/pyinstaller"
 meson="$root/.build-venv/bin/meson"
@@ -65,6 +65,7 @@ cp "$wayland_protocols_archive" "$wl_source/subprojects/packagecache/"
 wl_paste="$wl_build/src/wl-paste"
 
 "$pyinstaller" --noconfirm --clean --onedir --name pastemd-linux \
+  --additional-hooks-dir "$root/packaging/appimage/hooks" \
   --paths "$root" --collect-submodules pastemd \
   --distpath "$root/build/appimage/pyinstaller-dist" \
   --workpath "$root/build/appimage/pyinstaller-work" \
@@ -102,7 +103,8 @@ sed -i 's/^Icon=.*/Icon=pastemd-linux/' \
   "$appdir/usr/share/applications/io.github.GMagisk9527.PasteMDLinux.desktop"
 (cd "$root" && LC_ALL=C.UTF-8 ARCH=x86_64 \
   ./.build-tools/appimagetool-x86_64.AppImage --appimage-extract-and-run \
-  --no-appstream \
+  --no-appstream --comp zstd \
+  --mksquashfs-opt=-Xcompression-level --mksquashfs-opt=19 \
   --mksquashfs-opt=-processors --mksquashfs-opt=4 \
   --runtime-file ./.build-tools/runtime-x86_64-20251108 \
   build/appimage/PasteMD-Linux.AppDir dist/"$(basename "$output")")

@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QKeySequence
 from pastemd.linux import settings
@@ -99,6 +100,45 @@ class DesktopTests(unittest.TestCase):
         hotkey.iface.isGlobalShortcutAvailable.assert_not_called()
         hotkey.iface.doRegister.assert_called_once()
         self.assertTrue(hotkey.bound)
+
+    def test_failed_hotkey_connection_can_retry(self):
+        hotkey = KdeHotkey()
+        bus = Mock()
+        bus.name_has_owner.return_value = True
+        with patch('dbus.SessionBus', return_value=bus), patch('dbus.Interface', side_effect=[RuntimeError('service restarting'), Mock()]):
+            with self.assertRaises(RuntimeError):
+                hotkey._connect()
+            self.assertIsNone(hotkey.bus)
+            self.assertIsNone(hotkey.iface)
+            hotkey._connect()
+        self.assertIs(hotkey.bus, bus)
+        self.assertEqual(len(hotkey.matches), 1)
+        hotkey.close()
+
+    def test_shortcut_recording_handles_service_failure(self):
+        window = self.window()
+        window.hotkey = Mock(bound=True)
+        window.hotkey.unbind.side_effect = RuntimeError('service unavailable')
+        window.eventFilter(window.key_edit, QEvent(QEvent.Type.FocusIn))
+        self.assertIn('暂停热键失败', window.log.toPlainText())
+
+    def test_pending_quit_does_not_open_document_or_schedule_paste(self):
+        window = self.window()
+        window.pending_quit = True
+        window.want_paste = True
+        window.target = (10, b'docx')
+        with patch('pastemd.linux.gui.cli.open_in_wps') as open_document:
+            window._converted({'path': '/tmp/generated.docx'})
+            window._converted({'clipboard': True})
+        open_document.assert_not_called()
+        self.assertFalse(window.paste_timer.isActive())
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert()
+        worker.assert_not_called()
+        window.hotkey = Mock(bound=False)
+        window.smoke = False
+        window._resume_after_recording()
+        window.hotkey.bind.assert_not_called()
 
     def test_failed_save_disables_new_hotkey_when_old_setting_was_disabled(self):
         window = self.window()

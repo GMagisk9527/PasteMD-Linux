@@ -268,13 +268,16 @@ class MainWindow(QMainWindow):
     def eventFilter(self, watched, event):
         if watched in getattr(self, 'capture_widgets', []):
             if event.type() == QEvent.Type.FocusIn and self.hotkey and self.hotkey.bound:
-                self.hotkey.unbind()
+                try:
+                    self.hotkey.unbind()
+                except Exception as error:
+                    self.report('暂停热键失败：' + str(error))
             elif event.type() == QEvent.Type.FocusOut:
                 QTimer.singleShot(0, self._resume_after_recording)
         return super().eventFilter(watched, event)
 
     def _resume_after_recording(self):
-        if QApplication.focusWidget() in self.capture_widgets or not self.settings['hotkey_enabled'] or self.smoke:
+        if self.pending_quit or self.closing or QApplication.focusWidget() in self.capture_widgets or not self.settings['hotkey_enabled'] or self.smoke:
             return
         if self.hotkey and not self.hotkey.bound:
             try:
@@ -330,6 +333,8 @@ class MainWindow(QMainWindow):
             self.tray.showMessage('PasteMD Linux', text, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def convert(self, paste=False, demo=False, open_docx=False):
+        if self.pending_quit or self.closing:
+            return
         if self.worker or self.paste_pending:
             self.report('正在处理，请稍候。')
             return
@@ -356,6 +361,8 @@ class MainWindow(QMainWindow):
             self.request_quit()
 
     def _converted(self, result):
+        if self.pending_quit or self.closing:
+            return
         if 'path' in result:
             try:
                 cli.open_in_wps(result['path'])
