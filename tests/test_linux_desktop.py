@@ -11,7 +11,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QKeySequence
 from pastemd.linux import settings
-from pastemd.linux.gui import MainWindow
+from pastemd.linux.gui import MainWindow, start_window
 from pastemd.linux.hotkey import KdeHotkey
 from pastemd.linux.x11 import X11Paste
 
@@ -184,9 +184,40 @@ class DesktopTests(unittest.TestCase):
         window.x11.paste.assert_not_called()
         self.assertTrue(window.paste_pending)
         window.x11.modifiers_held.return_value = False
-        window._try_paste()
+        window.clipboard_token = b"sample"
+        with patch("pastemd.linux.gui.QApplication.clipboard") as clipboard:
+            clipboard.return_value.mimeData.return_value.data.return_value = b"sample"
+            window._try_paste()
         window.x11.paste.assert_called_once_with(window.target)
         self.assertFalse(window.paste_pending)
+
+    def test_changed_clipboard_cancels_automatic_paste(self):
+        window = self.window()
+        window.x11 = Mock()
+        window.target = (10, b'docx')
+        window.x11.focused_wps.return_value = window.target
+        window.x11.modifiers_held.return_value = False
+        window.clipboard_token = b'original'
+        window.paste_pending = True
+        window.paste_ready_at = 0
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value.data.return_value = b'other'
+            window._try_paste()
+        window.x11.paste.assert_not_called()
+        self.assertFalse(window.paste_pending)
+        self.assertIn('剪贴板已变化', window.log.toPlainText())
+
+    def test_cold_trigger_does_not_show_window_even_without_tray(self):
+        window = Mock(tray=None)
+        args = Mock(trigger=True, minimized=False, smoke_test=None)
+        with patch('pastemd.linux.gui.QTimer.singleShot') as timer:
+            start_window(window, args)
+            window.show.assert_not_called()
+            timer.call_args.args[1]()
+        window.convert.assert_called_once_with(paste=True)
+        args.trigger = False
+        start_window(window, args)
+        window.show.assert_called_once()
 
     def test_paste_backend_refuses_changed_target_before_key_events(self):
         backend = X11Paste.__new__(X11Paste)

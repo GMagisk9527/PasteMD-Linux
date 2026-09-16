@@ -49,7 +49,7 @@ def save_settings(values):
 
 
 def _quote(value):
-    value = str(value).replace('%', '%%').replace('\\', '\\\\\\\\')
+    value = str(value).replace('%', '%%').replace('\\', '\\\\')
     for char in ('"', '`', '$'):
         value = value.replace(char, '\\' + char)
     return '"' + value + '"'

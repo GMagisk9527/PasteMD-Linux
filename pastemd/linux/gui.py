@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import time
+import uuid
 
 from PySide6.QtCore import (QEvent, QLockFile, QTimer, Qt, QThread, Signal, QUrl)
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
@@ -20,6 +21,9 @@ from .hotkey import KdeHotkey
 from .settings import (ROOT, DEFAULTS, load_settings, save_settings, config_file,
                        autostart_path, set_autostart, install_launcher)
 from .x11 import X11Paste
+
+
+CLIPBOARD_TOKEN_MIME = 'application/x-pastemd-conversion-id'
 
 
 class ConversionWorker(QThread):
@@ -53,8 +57,10 @@ class ConversionWorker(QThread):
             else:
                 plain = cli.run(['pandoc', '-f', 'json', '-t', 'plain'], document)
                 payload = cli.native_clipboard_payload(document, plain)
+                token = uuid.uuid4().hex.encode('ascii')
+                payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
-                self.completed.emit({'clipboard': True})
+                self.completed.emit({'clipboard': True, 'token': token})
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -67,6 +73,8 @@ class MainWindow(QMainWindow):
         self.paste_pending = False
         self.pending_quit = False
         self.target = None
+        self.want_paste = False
+        self.clipboard_token = None
         self.paste_deadline = 0
         self.x11 = None
         self.hotkey = None
@@ -371,6 +379,7 @@ class MainWindow(QMainWindow):
                 message = str(error) + ' ' + result['path']
             self.report(message, notify=True)
             return
+        self.clipboard_token = result.get('token')
         if self.want_paste and self.target:
             self.paste_pending = True
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
@@ -389,6 +398,10 @@ class MainWindow(QMainWindow):
                 if time.monotonic() < self.paste_deadline:
                     return
                 raise RuntimeError('快捷键未松开，内容已就绪，请手动 Ctrl+V。')
+            mime = QApplication.clipboard().mimeData()
+            token_data = mime.data(CLIPBOARD_TOKEN_MIME) if mime is not None else None
+            if not self.clipboard_token or token_data is None or bytes(token_data) != self.clipboard_token:
+                raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target)
             self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。', notify=True)
         except Exception as error:
@@ -452,6 +465,14 @@ class MainWindow(QMainWindow):
         else:
             event.ignore()
             self.request_quit()
+
+
+def start_window(window, args):
+    # A cold --trigger must leave the foreground WPS window untouched.
+    if args.smoke_test or (not args.trigger and (not args.minimized or not window.tray)):
+        window.show()
+    if args.trigger:
+        QTimer.singleShot(500, lambda: window.convert(paste=True))
 
 
 def main(argv=None):
@@ -531,10 +552,7 @@ def main(argv=None):
             socket.disconnected.connect(discard)
             receive()
         server.newConnection.connect(accept)
-    if not args.minimized or not window.tray or args.smoke_test:
-        window.show()
-    if args.trigger:
-        QTimer.singleShot(500, lambda: window.convert(paste=True))
+    start_window(window, args)
     if args.smoke_test:
         def capture():
             window.grab().save(args.smoke_test)

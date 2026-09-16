@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import select
+import time
 import shutil
 import subprocess
 import sys
@@ -162,6 +163,43 @@ def serve_clipboard():
         return 1
 
 
+def clipboard_handshake(process, encoded, timeout=15):
+    """Bound both pipe writes and partial replies by one monotonic deadline."""
+    writer, reader = process.stdin.fileno(), process.stdout.fileno()
+    os.set_blocking(writer, False)
+    os.set_blocking(reader, False)
+    deadline = time.monotonic() + timeout
+    pending = memoryview(encoded)
+    reply = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError('XWayland 剪贴板服务启动超时。')
+        readable, writable, _ = select.select([reader], [writer] if pending else [], [], remaining)
+        if writable:
+            try:
+                pending = pending[os.write(writer, pending[:65536]):]
+            except BlockingIOError:
+                continue
+            if not pending:
+                process.stdin.close()
+        if readable:
+            try:
+                chunk = os.read(reader, 4096)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                raise RuntimeError('剪贴板服务启动失败：连接已关闭。')
+            reply.extend(chunk)
+            if len(reply) > 4096:
+                raise RuntimeError('剪贴板服务返回了无效响应。')
+            if b'\n' in reply:
+                line = reply.split(b'\n', 1)[0].decode('utf-8', 'replace').strip()
+                if line != 'READY' or pending:
+                    raise RuntimeError(line or '剪贴板服务启动失败。')
+                return
+
+
 def set_clipboard_payload(payload):
     if not os.environ.get('DISPLAY'):
         raise RuntimeError('WPS 原生粘贴需要 XWayland（DISPLAY），当前不可用。')
@@ -177,13 +215,7 @@ def set_clipboard_payload(payload):
         start_new_session=True, env=dict(os.environ, QT_QPA_PLATFORM='xcb'),
     )
     try:
-        process.stdin.write(encoded)
-        process.stdin.close()
-        if not select.select([process.stdout], [], [], 15)[0]:
-            raise RuntimeError('XWayland 剪贴板服务启动超时。')
-        reply = process.stdout.readline().decode('utf-8', 'replace').strip()
-        if reply != 'READY':
-            raise RuntimeError(reply or '剪贴板服务启动失败，请检查 PySide6 的 xcb 插件和 DISPLAY。')
+        clipboard_handshake(process, encoded)
     except Exception:
         process.terminate()
         try:

@@ -1,4 +1,7 @@
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 import tempfile
 import shutil
@@ -11,6 +14,34 @@ from pastemd.linux import cli
 
 
 class WaylandTests(unittest.TestCase):
+    def pipe_process(self, code):
+        process = subprocess.Popen([sys.executable, '-c', code], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        def cleanup():
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            process.stdin.close()
+            process.stdout.close()
+        self.addCleanup(cleanup)
+        return process
+
+    def test_clipboard_handshake_bounds_blocked_write(self):
+        process = self.pipe_process('import time; time.sleep(30)')
+        started = time.monotonic()
+        with self.assertRaisesRegex(RuntimeError, '超时'):
+            cli.clipboard_handshake(process, b'x' * 1000000, timeout=0.2)
+        self.assertLess(time.monotonic() - started, 3)
+
+    def test_clipboard_handshake_bounds_partial_reply(self):
+        process = self.pipe_process("import sys,time; sys.stdin.buffer.read(); sys.stdout.write('REA'); sys.stdout.flush(); time.sleep(30)")
+        with self.assertRaisesRegex(RuntimeError, '超时'):
+            cli.clipboard_handshake(process, b'{}', timeout=0.3)
+
+    def test_clipboard_handshake_accepts_complete_reply(self):
+        process = self.pipe_process("import sys; sys.stdin.buffer.read(); print('READY', flush=True)")
+        cli.clipboard_handshake(process, b'{}', timeout=3)
+
     def test_auto_prefers_html(self):
         with patch.object(cli, 'run', side_effect=[b'text/plain\ntext/html\n', b'<p>Hello</p>']) as run:
             self.assertEqual(cli.read_clipboard('auto'), (b'<p>Hello</p>', 'html' + cli.MATH_EXTENSIONS))
