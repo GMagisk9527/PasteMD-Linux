@@ -1,3 +1,4 @@
+import base64
 import os
 import subprocess
 import sys
@@ -164,6 +165,26 @@ class WaylandTests(unittest.TestCase):
                 return sum(map(count_math, value))
             return 0
         self.assertEqual(count_math(json.loads(prepared)), 4)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_lost_image_count_flags_unreachable_images(self):
+        prepared = cli.prepare_document(
+            '<p><img src="/pastemd-missing-image.png" alt="缺失" /></p>'.encode(), 'html')
+        docx = cli.run(['pandoc', '-f', 'json', '-t', 'docx', '-o', '-'], prepared)
+        self.assertEqual(cli.lost_image_count(prepared, docx), 1)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_lost_image_count_accepts_embedded_and_deduped_images(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'dot.png'
+            image.write_bytes(base64.b64decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+                'AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='))
+            source = (f'<p><img src="{image}" alt="一"/></p>'
+                      f'<p><img src="{image}" alt="二"/></p>').encode()
+            prepared = cli.prepare_document(source, 'html')
+            docx = cli.run(['pandoc', '-f', 'json', '-t', 'docx', '-o', '-'], prepared)
+            self.assertEqual(cli.lost_image_count(prepared, docx), 0)
 
 
 if __name__ == '__main__':

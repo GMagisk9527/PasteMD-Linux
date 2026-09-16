@@ -44,6 +44,11 @@ class X11Paste:
             self.x.XSync(self.display, 0)
             self.x.XSetErrorHandler(previous)
 
+    @staticmethod
+    def is_wps(names):
+        """Match WM_CLASS variants loosely: wps, kwps, wpsoffice, com.wps.*."""
+        return any('wps' in name for name in names)
+
     def focused_wps(self):
         with self._errors():
             focus, revert = C.c_ulong(), C.c_int()
@@ -59,7 +64,7 @@ class X11Paste:
                         if value:
                             names.append(C.string_at(value).decode('utf-8', 'replace').lower())
                             self.x.XFree(value)
-                if any(name in ('wps', 'kwps') for name in names):
+                if self.is_wps(names):
                     title_ptr = C.c_void_p()
                     title = b''
                     if self.x.XFetchName(self.display, current, C.byref(title_ptr)) and title_ptr.value:

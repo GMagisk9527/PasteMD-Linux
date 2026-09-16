@@ -9,6 +9,7 @@
   "command": "pastemd-linux",
   "finish-args": [
     "--share=ipc",
+    "--share=network",
     "--socket=x11",
     "--socket=wayland",
     "--talk-name=org.kde.kglobalaccel",

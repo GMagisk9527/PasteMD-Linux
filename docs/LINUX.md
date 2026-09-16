@@ -66,7 +66,7 @@ python3 scripts/pastemd-linux.py --install
 如果桌面不是 KDE，程序仍可手动转换；可在桌面系统设置中把下列命令绑定为全局快捷键：
 
 ```text
-/usr/bin/python3 /home/pxx/桌面/pastemd/PasteMD/scripts/pastemd-linux.py --trigger
+/usr/bin/python3 ~/PasteMD-Linux/scripts/pastemd-linux.py --trigger
 ```
 
 ## 内置样本
@@ -102,6 +102,7 @@ python3 scripts/pastemd-wayland.py --clipboard
 - 生成包含 OMML 原生公式的 DOCX，并校验公式数量；转换失败或公式数减少时不写剪贴板。
 - 实际检查 WPS 原生复制样本发现，其 `Kingsoft WPS 9.0 Format` 内容为 DOCX ZIP。PySide6 通过 XWayland 向这个格式写入完整 DOCX，同时提供纯文本。
 - 不提供 HTML 或 RTF 图片回退，避免 WPS 优先选择它们而丢失公式编辑能力。
+- 远程图片由 Pandoc 在转换时抓取并嵌入 DOCX；无网络或图片失效时会被替换为文字说明，完成提示会注明丢失数量。Flatpak 沙箱需要 `--share=network` 权限（清单已包含）。
 
 清理网页包装会丢弃其颜色、字号和页面布局。未接入上游所有网页公式恢复、图片与样式修复逻辑。
 `.wps` 格式、复杂公式、图片、版式和不同 WPS 版本仍需验证。剪贴板使用的是观测到的 WPS 原生格式，未来版本可能改变。

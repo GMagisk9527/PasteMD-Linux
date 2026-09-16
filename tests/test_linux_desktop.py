@@ -234,6 +234,46 @@ class DesktopTests(unittest.TestCase):
             window.convert(paste=True)
             worker.assert_not_called()
 
+    def test_wps_window_class_matches_loose_variants(self):
+        for names in (['wps'], ['kwps'], ['wpsoffice'], ['com.wps.writer']):
+            self.assertTrue(X11Paste.is_wps(names), names)
+        self.assertFalse(X11Paste.is_wps(['kwrite']))
+        self.assertFalse(X11Paste.is_wps([]))
+
+    def test_convert_reports_missing_wps_focus(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_wps.return_value = None
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertIn('未找到获得焦点的 WPS 窗口', window.log.toPlainText())
+        self.assertFalse(window.want_paste)
+        self.assertIsNone(window.target)
+        worker.assert_called_once()
+
+    def test_converted_reports_lost_images(self):
+        window = self.window()
+        window.want_paste = False
+        window._converted({'clipboard': True, 'token': b't', 'lost_images': 2})
+        self.assertIn('2 张图片未能嵌入', window.log.toPlainText())
+        self.assertEqual(window.lost_images, 2)
+
+    def test_paste_message_reports_lost_images(self):
+        window = self.window()
+        window.x11 = Mock()
+        window.target = (10, b'docx')
+        window.x11.focused_wps.return_value = window.target
+        window.x11.modifiers_held.return_value = False
+        window.clipboard_token = b'sample'
+        window.lost_images = 3
+        window.paste_pending = True
+        window.paste_ready_at = 0
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value.data.return_value = b'sample'
+            window._try_paste()
+        self.assertIn('3 张图片未能嵌入', window.log.toPlainText())
+
 
 if __name__ == '__main__':
     unittest.main()

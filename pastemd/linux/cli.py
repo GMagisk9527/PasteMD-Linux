@@ -118,6 +118,32 @@ def math_count(value):
     return 0
 
 
+def image_urls(value):
+    """Distinct image sources in a Pandoc AST. Pandoc dedupes identical
+    media in DOCX, so counting sources (not nodes) matches its output."""
+    found = set()
+    if isinstance(value, dict):
+        if value.get('t') == 'Image' and len(value.get('c', [])) > 2:
+            found.add(value['c'][2][0])
+        for item in value.values():
+            found |= image_urls(item)
+    elif isinstance(value, list):
+        for item in value:
+            found |= image_urls(item)
+    return found
+
+
+def lost_image_count(document, docx):
+    """Images the document references but the DOCX media store lacks."""
+    expected = image_urls(json.loads(document))
+    if not expected:
+        return 0
+    with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+        embedded = sum(1 for name in archive.namelist()
+                       if name.startswith('word/media/'))
+    return max(0, len(expected) - embedded)
+
+
 def native_clipboard_payload(document, plain_text):
     """WPS exposes a DOCX ZIP under this native X11 clipboard format."""
     docx = run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-'], document)
@@ -276,13 +302,19 @@ def main(argv=None):
             if open_docx:
                 open_in_wps(name)
             message = 'DOCX 已保存：' + name
+            lost = lost_image_count(content, Path(name).read_bytes())
+            if lost:
+                message += f'（注意：{lost} 张图片未能嵌入）'
             notify(message)
             print(message)
         else:
             plain_text = run(command + ['--to', 'plain'], content)
             payload = native_clipboard_payload(content, plain_text)
+            lost = lost_image_count(content, payload['Kingsoft WPS 9.0 Format'])
             set_clipboard_payload(payload)
             message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'
+            if lost:
+                message += f'注意：{lost} 张图片未能嵌入。'
             notify(message)
             print(message)
         return 0

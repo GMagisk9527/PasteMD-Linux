@@ -53,14 +53,16 @@ class ConversionWorker(QThread):
                 except Exception:
                     Path(name).unlink(missing_ok=True)
                     raise
-                self.completed.emit({'path': name})
+                lost = cli.lost_image_count(document, Path(name).read_bytes())
+                self.completed.emit({'path': name, 'lost_images': lost})
             else:
                 plain = cli.run(['pandoc', '-f', 'json', '-t', 'plain'], document)
                 payload = cli.native_clipboard_payload(document, plain)
                 token = uuid.uuid4().hex.encode('ascii')
                 payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
-                self.completed.emit({'clipboard': True, 'token': token})
+                lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
+                self.completed.emit({'clipboard': True, 'token': token, 'lost_images': lost})
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
         self.target = None
         self.want_paste = False
         self.clipboard_token = None
+        self.lost_images = 0
         self.paste_deadline = 0
         self.x11 = None
         self.hotkey = None
@@ -346,8 +349,13 @@ class MainWindow(QMainWindow):
         if self.worker or self.paste_pending:
             self.report('正在处理，请稍候。')
             return
-        self.target = self.x11.focused_wps() if paste and self.settings['auto_paste'] and self.x11 else None
-        self.want_paste = paste and self.settings['auto_paste']
+        self.target = None
+        paste_now = paste and self.settings['auto_paste']
+        if paste_now and self.x11:
+            self.target = self.x11.focused_wps()
+            if self.target is None:
+                self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
+        self.want_paste = paste_now and self.target is not None
         self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx, self)
         self.worker.completed.connect(self._converted)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
@@ -371,13 +379,15 @@ class MainWindow(QMainWindow):
     def _converted(self, result):
         if self.pending_quit or self.closing:
             return
+        self.lost_images = result.get('lost_images') or 0
+        lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
         if 'path' in result:
             try:
                 cli.open_in_wps(result['path'])
                 message = 'DOCX 已保存并交给 WPS 打开：' + result['path']
             except (OSError, RuntimeError) as error:
                 message = str(error) + ' ' + result['path']
-            self.report(message, notify=True)
+            self.report(message + lost_note, notify=True)
             return
         self.clipboard_token = result.get('token')
         if self.want_paste and self.target:
@@ -386,7 +396,7 @@ class MainWindow(QMainWindow):
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
         else:
-            self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。', notify=True)
+            self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。' + lost_note, notify=True)
 
     def _try_paste(self):
         if time.monotonic() < self.paste_ready_at:
@@ -403,7 +413,8 @@ class MainWindow(QMainWindow):
             if not self.clipboard_token or token_data is None or bytes(token_data) != self.clipboard_token:
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target)
-            self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。', notify=True)
+            lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
+            self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。' + lost_note, notify=True)
         except Exception as error:
             self.report(str(error), notify=True)
         self.paste_timer.stop()
