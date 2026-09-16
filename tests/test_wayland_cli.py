@@ -71,34 +71,37 @@ class WaylandTests(unittest.TestCase):
 
     def test_conversion_failure_does_not_write_clipboard(self):
         with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'run', side_effect=RuntimeError('conversion failed')), patch.object(cli, 'notify'), patch.object(cli.subprocess, 'run') as process:
-            self.assertEqual(cli.main([]), 1)
+            self.assertEqual(cli.main([], options={}), 1)
             process.assert_not_called()
 
     def test_docx_output_preserves_clipboard(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', return_value=b'') as run, patch.object(cli, 'notify'):
-                self.assertEqual(cli.main(['--docx']), 0)
+                self.assertEqual(cli.main(['--docx'], options={}), 0)
                 command = run.call_args.args[0]
-                self.assertEqual(command[:5], ['pandoc', '--from', 'json', '--to', 'docx'])
-                self.assertTrue(Path(command[-1]).is_file())
+                self.assertEqual(command[:3], ['pandoc', '--from', 'json'])
+                self.assertIn('--to', command)
+                self.assertEqual(command[-1], '-')
+                saved = list((Path(directory) / 'pastemd').glob('*.docx'))
+                self.assertEqual(len(saved), 1)
 
     def test_failed_docx_removes_partial_file(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', side_effect=RuntimeError('conversion failed')), patch.object(cli, 'notify'):
-                self.assertEqual(cli.main(['--docx']), 1)
+                self.assertEqual(cli.main(['--docx'], options={}), 1)
                 self.assertEqual(list((Path(directory) / 'pastemd').iterdir()), [])
 
 
     def test_default_writes_native_docx_without_opening_wps(self):
         expected = {'Kingsoft WPS 9.0 Format': b'docx', 'text/plain': b'plain'}
         with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'native_clipboard_payload', return_value=expected), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard, patch.object(cli.subprocess, 'Popen') as opener:
-            self.assertEqual(cli.main([]), 0)
+            self.assertEqual(cli.main([], options={}), 0)
             clipboard.assert_called_once_with(expected)
             opener.assert_not_called()
 
     def test_failed_native_conversion_does_not_change_clipboard(self):
         with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'native_clipboard_payload', side_effect=RuntimeError('math lost')), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard:
-            self.assertEqual(cli.main([]), 1)
+            self.assertEqual(cli.main([], options={}), 1)
             clipboard.assert_not_called()
 
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
@@ -185,6 +188,95 @@ class WaylandTests(unittest.TestCase):
             prepared = cli.prepare_document(source, 'html')
             docx = cli.run(['pandoc', '-f', 'json', '-t', 'docx', '-o', '-'], prepared)
             self.assertEqual(cli.lost_image_count(prepared, docx), 0)
+
+    def test_docx_writer_args_carry_reference_headers(self):
+        options = {'reference_docx': '/tmp/ref.docx',
+                   'pandoc_request_headers': ['User-Agent: test-agent']}
+        self.assertEqual(cli.docx_writer_args(options),
+                         ['--highlight-style', 'tango', '--reference-doc', '/tmp/ref.docx',
+                          '--request-header', 'User-Agent: test-agent'])
+        self.assertEqual(cli.docx_writer_args({}), ['--highlight-style', 'tango'])
+
+    def test_stage_filters_follow_conversion_flags(self):
+        options = {'pandoc_filters': ['/tmp/custom.lua', '/tmp/tool.py'],
+                   'enable_latex_replacements': False, 'keep_original_formula': True}
+        args = cli._stage_filter_args('markdown' + cli.MATH_EXTENSIONS, options)
+        self.assertIn(cli.lua_filter('keep-latex-math.lua'), args)
+        self.assertIn(cli.lua_filter('normalize-markdown-breaks.lua'), args)
+        self.assertNotIn(cli.lua_filter('latex-replacements.lua'), args)
+        self.assertEqual(args.count('--lua-filter'), 3)
+        self.assertIn('/tmp/custom.lua', args)
+        self.assertEqual(args[args.index('--filter') + 1], '/tmp/tool.py')
+
+    def test_lua_filters_resolve_inside_package(self):
+        for name in ('latex-replacements.lua', 'normalize-markdown-breaks.lua', 'keep-latex-math.lua'):
+            self.assertTrue(Path(cli.lua_filter(name)).is_file(), name)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_single_dollar_block_fix(self):
+        source = '前言\n$\nx^2+y^2\n$\n后记'
+        prepared = cli.prepare_document(source.encode(), 'markdown' + cli.MATH_EXTENSIONS, {})
+        import json
+        self.assertGreaterEqual(self._count_math(json.loads(prepared)), 1)
+        untouched = cli.prepare_document(source.encode(), 'markdown' + cli.MATH_EXTENSIONS,
+                                         {'fix_single_dollar_block': False})
+        self.assertEqual(self._count_math(json.loads(untouched)), 0)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_keep_original_formula_converts_math_to_text(self):
+        import json
+        prepared = cli.prepare_document(cli.DEMO_MARKDOWN.encode(),
+                                        'markdown' + cli.MATH_EXTENSIONS,
+                                        {'keep_original_formula': True})
+        self.assertEqual(self._count_math(json.loads(prepared)), 0)
+        self.assertIn('$', prepared.decode('utf-8'))
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_finish_docx_applies_upstream_post_processing(self):
+        import io
+        prepared = cli.prepare_document(
+            '# Heading\n\n段落与 | 表格 | 列 |\n|---|---|\n| a | b |\n'.encode(),
+            'markdown' + cli.MATH_EXTENSIONS, {})
+        raw = cli.run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-'], prepared)
+        ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        for docx, options, expect_layout in ((raw, {}, False),
+                                             (cli.finish_docx(raw, 'markdown', {}), {}, False),
+                                             (cli.finish_docx(raw, 'markdown',
+                                                              {'docx_auto_table_layout': True}),
+                                              {'docx_auto_table_layout': True}, True)):
+            with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+                root = ET.fromstring(archive.read('word/document.xml'))
+            layouts = root.findall('.//w:tblLayout', ns)
+            self.assertEqual(bool(layouts and layouts[0].get(
+                '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type') == 'fixed'),
+                expect_layout)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_finish_docx_replaces_first_paragraph_style(self):
+        import io
+        raw = cli.run(['pandoc', '--from', 'markdown', '--to', 'docx', '--output', '-'],
+                      b'# Title\n\nFirst body paragraph.')
+        ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            root = ET.fromstring(archive.read('word/document.xml'))
+        before = [p.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+                  for p in root.findall('.//w:pStyle', ns)]
+        self.assertIn('FirstParagraph', before)
+        docx = cli.finish_docx(raw, 'markdown', {})
+        with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+            root = ET.fromstring(archive.read('word/document.xml'))
+        after = [p.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+                 for p in root.findall('.//w:pStyle', ns)]
+        self.assertNotIn('FirstParagraph', after)
+        self.assertIn('BodyText', after)
+
+    @staticmethod
+    def _count_math(value):
+        if isinstance(value, dict):
+            return int(value.get('t') == 'Math') + sum(WaylandTests._count_math(v) for v in value.values())
+        if isinstance(value, list):
+            return sum(map(WaylandTests._count_math, value))
+        return 0
 
 
 if __name__ == '__main__':

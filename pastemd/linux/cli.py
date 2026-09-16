@@ -19,6 +19,14 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 
+# 直接以脚本方式运行时(--serve-clipboard 子进程、手工执行)补上仓库根目录，
+# 让下面的包内绝对导入可用。
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from pastemd.utils.docx_processor import DocxProcessor
+from pastemd.utils.latex import convert_latex_delimiters
+
 
 MATH_EXTENSIONS = '+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash'
 
@@ -57,8 +65,82 @@ def clean_document(value):
     return value
 
 
-def prepare_document(content, reader):
-    document = json.loads(run(['pandoc', '--from', reader, '--to', 'json'], content))
+def lua_filter(name):
+    """Path of a bundled Lua filter, covering source runs and PyInstaller bundles."""
+    bundle = getattr(sys, '_MEIPASS', None)
+    if bundle:
+        candidate = Path(bundle) / 'lua' / name
+        if candidate.is_file():
+            return str(candidate)
+    return str(Path(__file__).resolve().parents[1] / 'lua' / name)
+
+
+def load_conversion_options():
+    """Conversion settings from settings.json; empty dict when unavailable."""
+    try:
+        from pastemd.linux.settings import load_settings
+        return load_settings()
+    except Exception:
+        return {}
+
+
+def _filter_args(options):
+    args = []
+    for path in options.get('pandoc_filters') or []:
+        path = str(path)
+        args += ['--lua-filter' if path.lower().endswith('.lua') else '--filter', path]
+    return args
+
+
+def _stage_filter_args(reader, options):
+    """Lua filters mirroring the upstream PasteMD conversion chain."""
+    args = []
+    if options.get('enable_latex_replacements', True):
+        args += ['--lua-filter', lua_filter('latex-replacements.lua')]
+    if reader.startswith('markdown'):
+        args += ['--lua-filter', lua_filter('normalize-markdown-breaks.lua')]
+    if options.get('keep_original_formula'):
+        args += ['--lua-filter', lua_filter('keep-latex-math.lua')]
+    return args + _filter_args(options)
+
+
+def docx_writer_args(options):
+    """Args appended to `pandoc --from json` DOCX conversions."""
+    options = options or {}
+    args = ['--highlight-style', 'tango']
+    reference = options.get('reference_docx')
+    if reference:
+        args += ['--reference-doc', str(reference)]
+    for header in options.get('pandoc_request_headers') or []:
+        args += ['--request-header', str(header)]
+    return args
+
+
+def finish_docx(docx, reader, options=None):
+    """Upstream DOCX post-processing: indent style, rules, table layout."""
+    options = options or {}
+    indent = ('md_disable_first_para_indent' if reader.startswith('markdown')
+              else 'html_disable_first_para_indent')
+    return DocxProcessor.apply_custom_processing(
+        docx,
+        disable_first_para_indent=bool(options.get(indent, True)),
+        horizontal_rule_style=options.get('horizontal_rule_style', 'default'),
+        auto_layout_tables=bool(options.get('docx_auto_table_layout', False)),
+    )
+
+
+def prepare_document(content, reader, options=None):
+    options = options or {}
+    if reader.startswith('markdown'):
+        text = content.decode('utf-8', 'replace')
+        text = convert_latex_delimiters(
+            text, bool(options.get('fix_single_dollar_block', True)))
+        content = text.encode('utf-8')
+        if options.get('markdown_hard_line_breaks'):
+            reader += '+hard_line_breaks'
+    document = json.loads(run(
+        ['pandoc', '--from', reader, '--to', 'json'] + _stage_filter_args(reader, options),
+        content))
     document = clean_document(document)
     document['meta'] = {}
     return json.dumps(document, ensure_ascii=False).encode('utf-8')
@@ -144,9 +226,11 @@ def lost_image_count(document, docx):
     return max(0, len(expected) - embedded)
 
 
-def native_clipboard_payload(document, plain_text):
+def native_clipboard_payload(document, plain_text, options=None, reader='markdown'):
     """WPS exposes a DOCX ZIP under this native X11 clipboard format."""
-    docx = run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-'], document)
+    docx = run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-']
+               + docx_writer_args(options), document)
+    docx = finish_docx(docx, reader, options)
     with zipfile.ZipFile(io.BytesIO(docx)) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
     expected = math_count(json.loads(document))
@@ -257,7 +341,7 @@ def set_clipboard_payload(payload):
     return process.pid
 
 
-def main(argv=None):
+def main(argv=None, options=None):
     if argv is None and sys.argv[1:] == ['--serve-clipboard']:
         return serve_clipboard()
     parser = argparse.ArgumentParser(description='Fedora Wayland 剪贴板转换（实验版）')
@@ -270,6 +354,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     open_docx = args.open
     use_clipboard = not (args.docx or args.open)
+    options = load_conversion_options() if options is None else options
     try:
         if not os.environ.get('WAYLAND_DISPLAY'):
             raise RuntimeError('请在 Wayland 桌面会话中运行。')
@@ -286,7 +371,7 @@ def main(argv=None):
             content, reader = read_clipboard(args.input)
         if not content.strip():
             raise RuntimeError('剪贴板内容为空。')
-        content = prepare_document(content, reader)
+        content = prepare_document(content, reader, options)
         command = ['pandoc', '--from', 'json']
         if not use_clipboard:
             cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
@@ -294,7 +379,10 @@ def main(argv=None):
             fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
             os.close(fd)
             try:
-                run(command + ['--to', 'docx', '--output', name], content)
+                docx = run(command + docx_writer_args(options)
+                           + ['--to', 'docx', '--output', '-'], content)
+                docx = finish_docx(docx, reader, options)
+                Path(name).write_bytes(docx)
             except Exception:
                 Path(name).unlink(missing_ok=True)
                 raise
@@ -302,14 +390,14 @@ def main(argv=None):
             if open_docx:
                 open_in_wps(name)
             message = 'DOCX 已保存：' + name
-            lost = lost_image_count(content, Path(name).read_bytes())
+            lost = lost_image_count(content, docx)
             if lost:
                 message += f'（注意：{lost} 张图片未能嵌入）'
             notify(message)
             print(message)
         else:
             plain_text = run(command + ['--to', 'plain'], content)
-            payload = native_clipboard_payload(content, plain_text)
+            payload = native_clipboard_payload(content, plain_text, options, reader)
             lost = lost_image_count(content, payload['Kingsoft WPS 9.0 Format'])
             set_clipboard_payload(payload)
             message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'

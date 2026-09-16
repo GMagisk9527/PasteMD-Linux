@@ -32,11 +32,18 @@ class DesktopTests(unittest.TestCase):
         values = dict(settings.DEFAULTS, hotkey='Ctrl+Alt+B', paste_delay_ms=500, input_format='markdown')
         settings.save_settings(values)
         self.assertEqual(settings.load_settings(), values)
-        settings.config_file().write_text(json.dumps({'paste_delay_ms': -10, 'input_format': 'invalid', 'auto_paste': 'false'}))
+        settings.config_file().write_text(json.dumps({
+            'paste_delay_ms': -10, 'input_format': 'invalid', 'auto_paste': 'false',
+            'reference_docx': 3, 'pandoc_filters': ['keep.lua', 5, ''],
+            'pandoc_request_headers': 'bad', 'horizontal_rule_style': 'bogus'}))
         loaded = settings.load_settings()
         self.assertEqual(loaded['paste_delay_ms'], 100)
         self.assertEqual(loaded['input_format'], 'auto')
         self.assertTrue(loaded['auto_paste'])
+        self.assertIsNone(loaded['reference_docx'])
+        self.assertEqual(loaded['pandoc_filters'], ['keep.lua'])
+        self.assertEqual(loaded['pandoc_request_headers'], settings.DEFAULTS['pandoc_request_headers'])
+        self.assertEqual(loaded['horizontal_rule_style'], 'default')
 
     def test_autostart_and_launcher_only_touch_their_files(self):
         other = Path(self.temp.name) / 'autostart/other.desktop'
@@ -251,6 +258,25 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(window.want_paste)
         self.assertIsNone(window.target)
         worker.assert_called_once()
+        self.assertEqual(worker.call_args.kwargs['options'], dict(window.settings))
+
+    def test_save_persists_conversion_enhancement_keys(self):
+        window = self.window()
+        window.keep_formula.setChecked(True)
+        window.auto_tables.setChecked(True)
+        window.rule_style.setCurrentIndex(window.rule_style.findData('paragraph_border'))
+        window.reference_edit.setText('/tmp/template.docx')
+        window.filters_edit.setPlainText('/tmp/custom.lua\n\n/tmp/tool.py')
+        window.save()
+        loaded = settings.load_settings()
+        self.assertTrue(loaded['keep_original_formula'])
+        self.assertTrue(loaded['docx_auto_table_layout'])
+        self.assertEqual(loaded['horizontal_rule_style'], 'paragraph_border')
+        self.assertEqual(loaded['reference_docx'], '/tmp/template.docx')
+        self.assertEqual(loaded['pandoc_filters'], ['/tmp/custom.lua', '/tmp/tool.py'])
+        self.assertEqual(loaded['pandoc_request_headers'],
+                         [line.strip() for line in window.headers_edit.toPlainText().splitlines()
+                          if line.strip()])
 
     def test_converted_reports_lost_images(self):
         window = self.window()

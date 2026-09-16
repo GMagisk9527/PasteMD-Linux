@@ -12,6 +12,7 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 - 转换完成后自动向原 WPS 窗口发送 `Ctrl+V`
 - 粘贴前核对窗口和文档焦点，避免内容进入其他应用
 - 支持 Markdown、网页 HTML、行内公式、块级公式、表格和常用 LaTeX 结构
+- 转换增强与上游对齐：LaTeX 语法修复、单 `$` 公式块修复、样式模板、表格自动列宽、自定义 Pandoc 过滤器
 - 可生成并打开独立 DOCX 文件
 
 ## 安装

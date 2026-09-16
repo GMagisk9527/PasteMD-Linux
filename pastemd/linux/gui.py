@@ -12,8 +12,8 @@ import uuid
 from PySide6.QtCore import (QEvent, QLockFile, QTimer, Qt, QThread, Signal, QUrl)
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout,
-    QHBoxLayout, QLabel, QKeySequenceEdit, QMainWindow, QMessageBox, QPlainTextEdit,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout,
+    QHBoxLayout, QLabel, QLineEdit, QKeySequenceEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QSpinBox, QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget, QMenu)
 
 from . import cli
@@ -30,9 +30,10 @@ class ConversionWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, input_format, demo=False, open_docx=False, parent=None):
+    def __init__(self, input_format, demo=False, open_docx=False, options=None, parent=None):
         super().__init__(parent)
         self.input_format, self.demo, self.open_docx = input_format, demo, open_docx
+        self.options = options or {}
 
     def run(self):
         try:
@@ -42,22 +43,25 @@ class ConversionWorker(QThread):
                 source, reader = cli.read_clipboard(self.input_format)
             if not source.strip():
                 raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
-            document = cli.prepare_document(source, reader)
+            document = cli.prepare_document(source, reader, self.options)
             if self.open_docx:
                 cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'pastemd'
                 cache.mkdir(parents=True, exist_ok=True)
                 fd, name = tempfile.mkstemp(prefix='paste-', suffix='.docx', dir=cache)
                 os.close(fd)
                 try:
-                    cli.run(['pandoc', '-f', 'json', '-t', 'docx', '-o', name], document)
+                    docx = cli.run(['pandoc', '--from', 'json'] + cli.docx_writer_args(self.options)
+                                   + ['--to', 'docx', '--output', '-'], document)
+                    docx = cli.finish_docx(docx, reader, self.options)
+                    Path(name).write_bytes(docx)
                 except Exception:
                     Path(name).unlink(missing_ok=True)
                     raise
-                lost = cli.lost_image_count(document, Path(name).read_bytes())
+                lost = cli.lost_image_count(document, docx)
                 self.completed.emit({'path': name, 'lost_images': lost})
             else:
                 plain = cli.run(['pandoc', '-f', 'json', '-t', 'plain'], document)
-                payload = cli.native_clipboard_payload(document, plain)
+                payload = cli.native_clipboard_payload(document, plain, self.options, reader)
                 token = uuid.uuid4().hex.encode('ascii')
                 payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
@@ -197,6 +201,60 @@ class MainWindow(QMainWindow):
         self.autostart.setChecked(autostart_path().exists())
         settings_form.addRow(self.autostart)
         controls.addLayout(settings_form)
+        enhance_form = QFormLayout()
+        self.keep_formula = QCheckBox('保留 LaTeX 原始公式（以 $…$ 文本插入）')
+        self.keep_formula.setChecked(self.settings['keep_original_formula'])
+        enhance_form.addRow(self.keep_formula)
+        self.latex_fix = QCheckBox('修复 LaTeX 语法（如 \\kern 间距替换）')
+        self.latex_fix.setChecked(self.settings['enable_latex_replacements'])
+        enhance_form.addRow(self.latex_fix)
+        self.dollar_fix = QCheckBox('修复单 $ 行构成的块级公式')
+        self.dollar_fix.setChecked(self.settings['fix_single_dollar_block'])
+        enhance_form.addRow(self.dollar_fix)
+        self.hard_breaks = QCheckBox('Markdown 内单个换行视为硬换行')
+        self.hard_breaks.setChecked(self.settings['markdown_hard_line_breaks'])
+        enhance_form.addRow(self.hard_breaks)
+        indent_row = QHBoxLayout()
+        self.md_indent = QCheckBox('Markdown')
+        self.md_indent.setChecked(self.settings['md_disable_first_para_indent'])
+        self.html_indent = QCheckBox('网页 HTML')
+        self.html_indent.setChecked(self.settings['html_disable_first_para_indent'])
+        indent_row.addWidget(self.md_indent)
+        indent_row.addWidget(self.html_indent)
+        indent_row.addStretch()
+        enhance_form.addRow('禁用首段缩进样式', indent_row)
+        self.rule_style = QComboBox()
+        for text, value in [('Pandoc 原生横线', 'default'), ('段落边框线', 'paragraph_border')]:
+            self.rule_style.addItem(text, value)
+        self.rule_style.setCurrentIndex(self.rule_style.findData(self.settings['horizontal_rule_style']))
+        enhance_form.addRow('水平线样式', self.rule_style)
+        self.auto_tables = QCheckBox('表格按内容自动调整列宽（实验）')
+        self.auto_tables.setChecked(self.settings['docx_auto_table_layout'])
+        enhance_form.addRow(self.auto_tables)
+        reference_row = QHBoxLayout()
+        self.reference_edit = QLineEdit(str(self.settings['reference_docx'] or ''))
+        self.reference_edit.setPlaceholderText('Pandoc 参考文档模板（.docx），留空使用默认样式')
+        browse = QPushButton('选择…')
+        browse.setMaximumWidth(72)
+        browse.clicked.connect(self._pick_reference)
+        clear_ref = QPushButton('清除')
+        clear_ref.setMaximumWidth(60)
+        clear_ref.clicked.connect(lambda: self.reference_edit.clear())
+        reference_row.addWidget(self.reference_edit, 1)
+        reference_row.addWidget(browse)
+        reference_row.addWidget(clear_ref)
+        enhance_form.addRow('样式模板', reference_row)
+        self.filters_edit = QPlainTextEdit()
+        self.filters_edit.setPlaceholderText('每行一个 Pandoc 过滤器路径（.lua 或可执行文件）')
+        self.filters_edit.setPlainText('\n'.join(self.settings['pandoc_filters']))
+        self.filters_edit.setMaximumHeight(64)
+        enhance_form.addRow('自定义过滤器', self.filters_edit)
+        self.headers_edit = QPlainTextEdit()
+        self.headers_edit.setPlaceholderText('每行一条，例如 User-Agent: Mozilla/5.0 …（抓取远程图片时使用）')
+        self.headers_edit.setPlainText('\n'.join(self.settings['pandoc_request_headers']))
+        self.headers_edit.setMaximumHeight(64)
+        enhance_form.addRow('请求头', self.headers_edit)
+        controls.addLayout(enhance_form)
         note = QLabel('自动粘贴仅在原 WPS 窗口仍有焦点、快捷键已经松开时执行。切换到其他应用后，内容会留在剪贴板供手动粘贴。')
         note.setWordWrap(True)
         controls.addWidget(note)
@@ -297,10 +355,26 @@ class MainWindow(QMainWindow):
                 self.report('热键恢复失败：' + str(error))
 
     def save(self):
-        new = {'hotkey': self.key_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
-               'hotkey_enabled': self.hotkey_enabled.isChecked(), 'auto_paste': self.auto_paste.isChecked(),
-               'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
-               'notifications': self.notifications.isChecked()}
+        # 先以当前生效设置为底，避免遗漏未在界面出现的键。
+        new = dict(self.settings)
+        new.update({
+            'hotkey': self.key_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+            'hotkey_enabled': self.hotkey_enabled.isChecked(), 'auto_paste': self.auto_paste.isChecked(),
+            'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
+            'notifications': self.notifications.isChecked(),
+            'keep_original_formula': self.keep_formula.isChecked(),
+            'enable_latex_replacements': self.latex_fix.isChecked(),
+            'fix_single_dollar_block': self.dollar_fix.isChecked(),
+            'markdown_hard_line_breaks': self.hard_breaks.isChecked(),
+            'md_disable_first_para_indent': self.md_indent.isChecked(),
+            'html_disable_first_para_indent': self.html_indent.isChecked(),
+            'horizontal_rule_style': self.rule_style.currentData(),
+            'docx_auto_table_layout': self.auto_tables.isChecked(),
+            'reference_docx': self.reference_edit.text().strip() or None,
+            'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
+                               if line.strip()],
+            'pandoc_request_headers': [line.strip() for line in self.headers_edit.toPlainText().splitlines()
+                                       if line.strip()]})
         old = dict(self.settings)
         old_autostart = autostart_path().exists()
         try:
@@ -356,7 +430,8 @@ class MainWindow(QMainWindow):
             if self.target is None:
                 self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
         self.want_paste = paste_now and self.target is not None
-        self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx, self)
+        self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx,
+                                       options=dict(self.settings), parent=self)
         self.worker.completed.connect(self._converted)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
         self.worker.finished.connect(self._worker_finished)
@@ -420,6 +495,12 @@ class MainWindow(QMainWindow):
         self.paste_timer.stop()
         self.paste_pending = False
         self._set_busy(False)
+
+    def _pick_reference(self):
+        path, _ = QFileDialog.getOpenFileName(self, '选择参考文档模板', str(Path.home()),
+                                              'DOCX 模板 (*.docx)')
+        if path:
+            self.reference_edit.setText(path)
 
     def _install_launcher(self):
         try:

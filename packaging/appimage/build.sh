@@ -73,6 +73,7 @@ wl_paste="$wl_build/src/wl-paste"
   --hidden-import=dbus.mainloop.glib --hidden-import=gi.repository.GLib \
   --collect-all dbus \
   --add-data "$root/assets/icons/logo.png:assets/icons" \
+  --add-data "$root/pastemd/lua:lua" \
   --add-data "$root/LICENSE:." --add-data "$root/NOTICE.md:." \
   --add-data "$root/THIRD_PARTY_NOTICES.md:." \
   --add-data "$cache/pandoc-COPYING.md:licenses/pandoc" \

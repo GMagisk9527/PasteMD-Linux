@@ -7,8 +7,27 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 FLATPAK_APP_ID = 'io.github.GMagisk9527.PasteMDLinux'
+DEFAULT_UA = ('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True,
-            'input_format': 'auto', 'paste_delay_ms': 250, 'notifications': True}
+            'input_format': 'auto', 'paste_delay_ms': 250, 'notifications': True,
+            # 转换增强，键名与上游 RICHQAQ/PasteMD 的 config.json 对齐
+            'reference_docx': None,
+            'keep_original_formula': False,
+            'enable_latex_replacements': True,
+            'fix_single_dollar_block': True,
+            'markdown_hard_line_breaks': False,
+            'md_disable_first_para_indent': True,
+            'html_disable_first_para_indent': True,
+            'horizontal_rule_style': 'default',
+            'docx_auto_table_layout': False,
+            'pandoc_request_headers': [DEFAULT_UA],
+            'pandoc_filters': []}
+
+
+def _string_list(value):
+    return [item for item in value if isinstance(item, str) and item.strip()] \
+        if isinstance(value, list) else None
 
 
 def config_file():
@@ -27,10 +46,21 @@ def load_settings():
         raise RuntimeError('Linux 设置文件必须是 JSON 对象。')
     for key, default in DEFAULTS.items():
         value = saved.get(key, default)
-        if type(value) is type(default):
-            result[key] = value
+        if isinstance(default, list):
+            value = _string_list(value)
+            if value is None:
+                continue
+        elif default is None:
+            # reference_docx: 接受 null 或非空字符串
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                continue
+        elif type(value) is not type(default):
+            continue
+        result[key] = value
     if result['input_format'] not in ('auto', 'markdown', 'html'):
         result['input_format'] = 'auto'
+    if result['horizontal_rule_style'] not in ('default', 'paragraph_border'):
+        result['horizontal_rule_style'] = 'default'
     result['paste_delay_ms'] = max(100, min(2000, result['paste_delay_ms']))
     return result
 

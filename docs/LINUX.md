@@ -96,6 +96,22 @@ python3 scripts/pastemd-wayland.py --clipboard
 保存的 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
 默认剪贴板模式在内存中生成、传递 DOCX，不保存中间文档。
 
+## 转换增强（对齐上游 PasteMD）
+
+以下选项与上游 RICHQAQ/PasteMD 的 `config.json` 键名一致，可在设置页调整，或直接编辑
+`${XDG_CONFIG_HOME:-~/.config}/pastemd-linux/settings.json`：
+
+- `enable_latex_replacements`：修复 AI 公式常见的 `\kern` 等语法（默认开）。
+- `fix_single_dollar_block`：把单独成行的 `$` 修复为 `$$` 块级公式，并收紧 `$ x $` 间距（默认开）。
+- `markdown_hard_line_breaks`：Markdown 内单个换行视为硬换行（默认关）。
+- `keep_original_formula`：公式以 `$…$` 原始文本插入而不是原生公式（默认关；开启时原生公式校验自动跳过）。
+- `md_disable_first_para_indent` / `html_disable_first_para_indent`：禁用 Pandoc 的首段缩进样式，统一为正文样式（默认开）。
+- `horizontal_rule_style`：`default` 保留 Pandoc 横线，`paragraph_border` 转为 WPS/Word 段落边框线。
+- `docx_auto_table_layout`：按内容自动调整表格列宽（实验，默认关）。
+- `reference_docx`：Pandoc 参考文档模板路径，套用自定义字体、页边距和样式。
+- `pandoc_request_headers`：抓取远程图片时的请求头（默认带浏览器 User-Agent）。
+- `pandoc_filters`：追加自定义 Pandoc 过滤器（`.lua` 或可执行文件），作用于解析阶段。
+
 ## 实现与限制
 
 - Pandoc 将网页/Markdown 解析成文档结构，清理页面偏移、隐藏 span/div 包装以及重复 KaTeX 展示层。
