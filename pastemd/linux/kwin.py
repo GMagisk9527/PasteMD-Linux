@@ -44,7 +44,7 @@ class KWinFocus:
     def __init__(self, classify, timeout_ms=400):
         self._classify = classify
         self._timeout_ms = timeout_ms
-        self._script_id = None
+        self._path = None
         self._interface = None
         self._receiver = _Reporter()
         self._conn = QDBusConnection.sessionBus()
@@ -65,32 +65,38 @@ class KWinFocus:
                               self._conn)
         if not kwin.isValid():
             return
-        path = Path(tempfile.gettempdir()) / f'pastemd-active-window-{id(self):x}.js'
+        self._path = Path(tempfile.gettempdir()) / f'pastemd-active-window-{id(self):x}.js'
         try:
-            path.write_text(KWIN_SCRIPT, encoding='utf-8')
+            self._path.write_text(KWIN_SCRIPT, encoding='utf-8')
         except OSError:
             return
-        reply = kwin.call('loadScript', str(path), f'pastemd{id(self):x}')
-        if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
-            return
-        self._script_id = reply.arguments()[0]
         self._interface = kwin
 
     @property
     def available(self):
-        return self._script_id is not None
+        return self._interface is not None
 
     def active_window(self):
-        """(caption, resource_class) of the active window, or None."""
+        """(caption, resource_class) of the active window, or None.
+
+        每次查询都重新加载脚本再运行：同一个脚本实例的第二次 run()
+        在 Plasma 6 上不可靠（实测会静默失败或返回 false）。
+        """
         if not self.available or self._interface is None:
+            return None
+        name = f'pastemd{id(self):x}'
+        reply = self._interface.call('loadScript', str(self._path), name)
+        if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
+            return None
+        script_id = reply.arguments()[0]
+        runner = QDBusInterface('org.kde.KWin', f'/Scripting/Script{script_id}',
+                                'org.kde.kwin.Script', self._conn)
+        if not runner.isValid():
+            self._interface.call('unloadScript', name)
             return None
         self._receiver.arrived = False
         self._receiver.caption = ''
         self._receiver.resource_class = ''
-        path = f'/Scripting/Script{self._script_id}'
-        runner = QDBusInterface('org.kde.KWin', path, 'org.kde.kwin.Script', self._conn)
-        if not runner.isValid():
-            return None
         runner.call('run')
         # 等回调到达：分步开事件循环处理 DBus 消息，总时长受 timeout 约束。
         waited = 0
@@ -100,6 +106,8 @@ class KWinFocus:
             QTimer.singleShot(step, loop.quit)
             loop.exec()
             waited += step
+        runner.call('stop')
+        self._interface.call('unloadScript', name)
         if not self._receiver.arrived:
             return None
         return self._receiver.caption, self._receiver.resource_class
@@ -116,13 +124,16 @@ class KWinFocus:
         return f'kwin:{self._name}', caption, kind
 
     def close(self):
-        if self._script_id is not None and self._interface is not None:
-            path = f'/Scripting/Script{self._script_id}'
-            runner = QDBusInterface('org.kde.KWin', path, 'org.kde.kwin.Script', self._conn)
-            if runner.isValid():
-                runner.call('stop')
-            self._interface.call('unloadScript', f'pastemd{id(self):x}')
-            self._script_id = None
         if self._conn is not None and self._conn.isConnected():
             self._conn.unregisterObject('/')
             self._conn.unregisterService(self._name)
+        if self._interface is not None:
+            # 兜底卸载同名的遗留脚本（正常流程在每次查询后已卸载）。
+            self._interface.call('unloadScript', f'pastemd{id(self):x}')
+            self._interface = None
+        if self._path is not None:
+            try:
+                self._path.unlink()
+            except OSError:
+                pass
+            self._path = None
