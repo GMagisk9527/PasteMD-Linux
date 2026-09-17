@@ -30,6 +30,8 @@ jobs:
             -o /tmp/pandoc.tar.gz
           tar -xzf /tmp/pandoc.tar.gz -C /tmp
           sudo cp /tmp/pandoc-3.7.0.2/bin/pandoc /usr/local/bin/pandoc
+          sudo cp /tmp/pandoc-3.7.0.2/bin/pandoc /usr/bin/pandoc
+          which -a pandoc
           pandoc --version | head -1
       - name: 安装 Python 依赖
         run: uv pip install --system PySide6
@@ -42,4 +44,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           # apt 的 dbus/gi 装在系统 dist-packages（3.12 ABI 兼容 hostedtoolcache）
           PYTHONPATH: /usr/lib/python3/dist-packages
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        run: |
+          echo "PATH=$PATH"
+          which -a pandoc
+          pandoc --version | head -1
+          echo '<p>x</p>' | pandoc -f html -t json | head -c 120
+          python -m unittest discover -s tests -p 'test_*.py' -v
