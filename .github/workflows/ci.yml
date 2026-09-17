@@ -18,15 +18,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            wl-clipboard libgl1 libegl1 libxkbcommon0 shellcheck
-      # 黄金测试锁的是 pandoc 3.7 的 AST 行为，必须与 vendored 版本一致
+            wl-clipboard libgl1 libegl1 libxkbcommon0 shellcheck \
+            python3-dbus python3-gi
+      # 黄金测试锁的是 pandoc 3.7 的 AST 行为，必须与 vendored 版本一致。
+      # runner 预装了旧版 pandoc 且 GITHUB_PATH 是追加（优先级低），
+      # 因此直接覆盖 /usr/local/bin。
       - name: 固定 pandoc 3.7.0.2
         run: |
           curl -fsSL \
             https://github.com/jgm/pandoc/releases/download/3.7.0.2/pandoc-3.7.0.2-linux-amd64.tar.gz \
             -o /tmp/pandoc.tar.gz
           tar -xzf /tmp/pandoc.tar.gz -C /tmp
-          echo "/tmp/pandoc-3.7.0.2/bin" >> "$GITHUB_PATH"
+          sudo cp /tmp/pandoc-3.7.0.2/bin/pandoc /usr/local/bin/pandoc
+          pandoc --version | head -1
       - name: 安装 Python 依赖
         run: uv pip install --system PySide6
       - name: 静态检查（ruff + shellcheck）
@@ -36,4 +40,6 @@ jobs:
       - name: 运行测试
         env:
           QT_QPA_PLATFORM: offscreen
+          # apt 的 dbus/gi 装在系统 dist-packages（3.12 ABI 兼容 hostedtoolcache）
+          PYTHONPATH: /usr/lib/python3/dist-packages
         run: python -m unittest discover -s tests -p 'test_*.py' -v
