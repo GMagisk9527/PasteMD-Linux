@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 manifest="$root/packaging/flatpak/io.github.GMagisk9527.PasteMDLinux.json"
 build_root="$root/build/flatpak"
-output="$root/dist/PasteMD-Linux-linux-v0.1.2-x86_64.flatpak"
+output="$root/dist/PasteMD-Linux-linux-v0.2.0-x86_64.flatpak"
 
 mkdir -p "$build_root" "$root/dist"
 flatpak run --filesystem="$root" org.flatpak.Builder \

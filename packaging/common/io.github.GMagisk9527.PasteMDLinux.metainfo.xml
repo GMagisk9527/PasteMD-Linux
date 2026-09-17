@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-09-17">
+      <description>
+        <p>对齐上游转换增强；新增 WPS 表格粘贴流程、按窗口切换 Markdown/LaTeX/HTML 粘贴格式的应用扩展规则，以及 Plasma Wayland 下基于 KWin 的焦点检测。</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-09-07">
       <description><p>精简 AppImage 和 Flatpak 依赖，修复热键连接重试、快捷键编辑异常与退出期间的自动操作。</p></description>
     </release>

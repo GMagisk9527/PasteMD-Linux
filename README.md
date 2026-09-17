@@ -27,8 +27,8 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 AppImage 已包含 PasteMD、Pandoc 和 `wl-paste`，下载后直接运行：
 
 ```bash
-chmod +x PasteMD-Linux-linux-v0.1.2-x86_64.AppImage
-./PasteMD-Linux-linux-v0.1.2-x86_64.AppImage
+chmod +x PasteMD-Linux-linux-v0.2.0-x86_64.AppImage
+./PasteMD-Linux-linux-v0.2.0-x86_64.AppImage
 ```
 
 ### Flatpak
@@ -36,7 +36,7 @@ chmod +x PasteMD-Linux-linux-v0.1.2-x86_64.AppImage
 下载 `.flatpak` 文件后安装并启动：
 
 ```bash
-flatpak install --user ./PasteMD-Linux-linux-v0.1.2-x86_64.flatpak
+flatpak install --user ./PasteMD-Linux-linux-v0.2.0-x86_64.flatpak
 flatpak run io.github.GMagisk9527.PasteMDLinux
 ```
 
@@ -114,7 +114,7 @@ python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
 发布包还可以执行不修改剪贴板的转换自检：
 
 ```bash
-./PasteMD-Linux-linux-v0.1.2-x86_64.AppImage --appimage-extract-and-run --package-self-test
+./PasteMD-Linux-linux-v0.2.0-x86_64.AppImage --appimage-extract-and-run --package-self-test
 flatpak run io.github.GMagisk9527.PasteMDLinux --package-self-test
 ```
 
