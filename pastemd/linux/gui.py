@@ -54,7 +54,8 @@ class ConversionWorker(QThread):
                     source, reader = cli.read_clipboard(self.input_format)
                 if not source.strip():
                     raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
-                document = cli.prepare_document(source, reader, self.options)
+                document = cli.prepare_document(source, reader, self.options,
+                                                protect_task_lists=(self.flow == 'md'))
                 payload = cli.text_clipboard_payload(source, document, reader, self.flow)
                 token = uuid.uuid4().hex.encode('ascii')
                 payload[CLIPBOARD_TOKEN_MIME] = token
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.smoke = smoke
         self.worker = None
         self.paste_pending = False
+        self._last_convert = 0.0
         self.pending_quit = False
         self.target = None
         self.want_paste = False
@@ -500,6 +502,11 @@ class MainWindow(QMainWindow):
     def convert(self, paste=False, demo=False, open_docx=False):
         if self.pending_quit or self.closing:
             return
+        # 防抖（对齐上游 FIRE_DEBOUNCE_SEC）：转换刚结束的短时间内连按热键不再触发
+        now = time.monotonic()
+        if now - self._last_convert < 0.5:
+            return
+        self._last_convert = now
         if self.worker or self.paste_pending:
             self.report('正在处理，请稍候。')
             return

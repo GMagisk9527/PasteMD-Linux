@@ -378,11 +378,31 @@ class WaylandTests(unittest.TestCase):
         self.assertEqual(payload['text/plain'], b'latex out')
         self.assertEqual(run.call_args.args[0][-2:], ['--to', 'latex'])
         self.assertEqual(run.call_args.args[0][:4], ['pandoc', '--from', 'json', '--to'])
-        with patch.object(cli, 'run', return_value=b'md out'):
+        with patch.object(cli, 'run', return_value=b'md out') as run:
             payload = cli.text_clipboard_payload(b'<p>x</p>', b'ast', 'html', 'md')
         self.assertEqual(payload['text/plain'], b'md out')
+        self.assertEqual(run.call_args.args[0],
+                         ['pandoc', '--from', 'json', '--to', 'gfm-raw_html',
+                          '--wrap', 'none'])
         with self.assertRaisesRegex(RuntimeError, '未知的目标格式'):
             cli.text_clipboard_payload(b'x', b'ast', 'markdown', 'rtf')
+
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_md_text_flow_task_lists_math_and_wrapping(self):
+        html = (b'<ul><li><span>[x]</span> done item</li>'
+                b'<li><span>[ ]</span> todo item</li></ul>'
+                b'<p>math $x^2+y^2$ end</p>')
+        reader = 'html' + cli.MATH_EXTENSIONS
+        ast = cli.prepare_document(html, reader, {}, protect_task_lists=True)
+        text = cli.text_clipboard_payload(html, ast, reader, 'md')['text/plain'].decode()
+        self.assertIn('- [x] done item', text)
+        self.assertIn('- [ ] todo item', text)
+        self.assertNotIn('\\[', text)
+        self.assertIn('$x^2+y^2$', text)
+        self.assertNotIn('$`', text)
+        # docx 流程不带保护：AST 中不出现占位符
+        ast_doc = json.loads(cli.prepare_document(html, reader, {}))
+        self.assertNotIn('PASTEMD_TASK', json.dumps(ast_doc))
 
     def test_cli_as_flag_writes_plain_text(self):
         with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), \

@@ -30,12 +30,16 @@ local config = nil
 
 local function get_config()
   if config == nil then
-    config = { bold = {}, italic = {}, promote = false }
+    config = { bold = {}, italic = {}, promote = false, protect_tasks = false }
     load_class_list(os.getenv('PASTEMD_FONT_BOLD_CLASSES'), config.bold)
     load_class_list(os.getenv('PASTEMD_FONT_ITALIC_CLASSES'), config.italic)
     local promote = os.getenv('PASTEMD_PROMOTE_BOLD_HEADER')
     if promote == 'true' or promote == '1' then
       config.promote = true
+    end
+    local protect = os.getenv('PASTEMD_PROTECT_TASKS')
+    if protect == '1' or protect == 'true' then
+      config.protect_tasks = true
     end
   end
   return config
@@ -176,18 +180,73 @@ local function decorate_cells(cells)
   end
 end
 
+-- 任务列表保护：把 [x]/[ ] 换成占位符，避免 gfm writer 转义成 \[x]；
+-- 由 cli 在转 Markdown 文本的目标上经环境变量开启，转换后再还原。
+-- pandoc 的 HTML reader 会把 "[ ]" 拆成 Str("["), Space, Str("]")，
+-- 因此除连续子串外还要按三件套匹配。
+local function protect_inlines(inlines)
+  local changed = false
+  local index = 1
+  while index <= #inlines do
+    local a, b, c = inlines[index], inlines[index + 1], inlines[index + 2]
+    if a and a.t == 'Str' and b and b.t == 'Space' and c and c.t == 'Str'
+        and string.sub(a.text, -1) == '[' and string.sub(c.text, 1, 1) == ']' then
+      local head = string.sub(a.text, 1, -2)
+      local tail = string.sub(c.text, 2)
+      inlines[index] = pandoc.Str(head .. '{{PASTEMD_TASK_UNCHECKED}}' .. tail)
+      table.remove(inlines, index + 1)
+      table.remove(inlines, index + 1)
+      changed = true
+    elseif a and a.t == 'Str' and string.find(a.text, '[', 1, true) then
+      local replaced = a.text:gsub('%[[xX]%]', '{{PASTEMD_TASK_CHECKED}}')
+      replaced = replaced:gsub('%[ %]', '{{PASTEMD_TASK_UNCHECKED}}')
+      if replaced ~= a.text then
+        inlines[index] = pandoc.Str(replaced)
+        changed = true
+      end
+    end
+    index = index + 1
+  end
+  return changed
+end
+
+function Para(para)
+  if get_config().protect_tasks then
+    protect_inlines(para.content)
+    return para
+  end
+  return nil
+end
+
+function Plain(plain)
+  if get_config().protect_tasks then
+    protect_inlines(plain.content)
+    return plain
+  end
+  return nil
+end
+
 function Span(span)
   local cfg = get_config()
   local math = restore_span_math(span)
   if math ~= nil then
     return math
   end
+  -- 就地修改必须显式返回元素，返回 nil 时 pandoc 使用原始副本
+  local protected = false
+  if cfg.protect_tasks then
+    protected = protect_inlines(span.content)
+  end
   local bold = has_class(span.classes, cfg.bold)
   local italic = has_class(span.classes, cfg.italic)
-  if not (bold or italic) then
-    return nil
+  if bold or italic then
+    span.content = wrap_inline(span.content, bold, italic)
+    return span
   end
-  return wrap_inline(span.content, bold, italic)
+  if protected then
+    return span
+  end
+  return nil
 end
 
 function Div(div)

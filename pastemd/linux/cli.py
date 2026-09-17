@@ -180,7 +180,7 @@ def finish_docx(docx, reader, options=None):
     )
 
 
-def prepare_document(content, reader, options=None):
+def prepare_document(content, reader, options=None, protect_task_lists=False):
     options = options or {}
     env = None
     if reader.startswith('markdown'):
@@ -202,6 +202,10 @@ def prepare_document(content, reader, options=None):
             env['PASTEMD_FONT_ITALIC_CLASSES'] = ','.join(italic_classes)
         if formatting.get('bold_first_row_to_header'):
             env['PASTEMD_PROMOTE_BOLD_HEADER'] = 'true'
+        # 任务列表 [x]/[ ] 占位保护：仅用于转 Markdown 文本的目标，避免
+        # gfm writer 把方括号转义成 \[x]；docx 流程保持原样
+        if protect_task_lists:
+            env['PASTEMD_PROTECT_TASKS'] = '1'
     args = ['pandoc', '--from', reader, '--to', 'json']
     if env is not None:
         args += ['--lua-filter', lua_filter('semantic-html.lua')]
@@ -298,8 +302,15 @@ def text_clipboard_payload(raw, document, reader, target_format):
             # 原文直通，仅套用公式分隔符修复，避免 Pandoc 重排用户的 Markdown。
             text = convert_latex_delimiters(raw.decode('utf-8', 'replace'))
             return {'text/plain': text.encode('utf-8')}
-        text = run(['pandoc', '--from', 'json', '--to', 'gfm'],
-                   document).decode('utf-8', 'replace')
+        # gfm-raw_html 剥离残留 HTML，--wrap none 不做 72 列硬折行
+        # （对齐上游 _convert_html_to_md；tex_math_dollars 对 gfm writer 无效，
+        # 其数学固定输出 GitLab 风格的 $`…`，下方统一还原为通用性更好的 $…$）
+        text = run(['pandoc', '--from', 'json', '--to', 'gfm-raw_html',
+                    '--wrap', 'none'], document).decode('utf-8', 'replace')
+        text = text.replace('$`', '$').replace('`$', '$')
+        # 任务列表占位还原（保护开关开启时由 Lua 写入，其余情况无占位符）
+        text = text.replace('{{PASTEMD_TASK_CHECKED}}', '[x]') \
+                   .replace('{{PASTEMD_TASK_UNCHECKED}}', '[ ]')
         return {'text/plain': text.encode('utf-8')}
     if target_format == 'latex':
         text = run(['pandoc', '--from', 'json', '--to', 'latex'],
@@ -519,7 +530,8 @@ def main(argv=None, options=None):
             if not content.strip():
                 raise RuntimeError('剪贴板内容为空。')
             raw_source = content
-            content = prepare_document(content, reader, options)
+            content = prepare_document(content, reader, options,
+                                       protect_task_lists=(args.as_format == 'md'))
             payload = text_clipboard_payload(raw_source, content, reader, args.as_format)
             set_clipboard_payload(payload)
             message = f'已按{text_clipboard_label(args.as_format)}文本写入剪贴板，在目标应用中按 Ctrl+V。'

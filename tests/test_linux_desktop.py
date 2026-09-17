@@ -367,6 +367,27 @@ class DesktopTests(unittest.TestCase):
         self.assertIn('没有匹配的粘贴规则', window.log.toPlainText())
         worker.assert_called_once()
 
+    def test_convert_debounces_rapid_triggers(self):
+        import time as time_module
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = None
+        window.kwin = Mock()
+        window.kwin.available = True
+        window.kwin.focused_app.return_value = None
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+            self.assertEqual(worker.call_count, 1)
+            # 0.5 秒内的再次触发应被静默忽略（对齐上游 FIRE_DEBOUNCE_SEC）
+            window.convert(paste=True)
+            self.assertEqual(worker.call_count, 1)
+            # 超过防抖窗口后可以再次触发（清掉上次的 worker 以隔离验证防抖）
+            window._last_convert = time_module.monotonic() - 1
+            window.worker = None
+            window.convert(paste=True)
+            self.assertEqual(worker.call_count, 2)
+
     def test_workflow_rules_survive_settings_round_trip(self):
         window = self.window()
         enabled, edit = window.workflow_edits['md']

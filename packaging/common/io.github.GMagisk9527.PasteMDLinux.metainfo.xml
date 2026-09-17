@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.1" date="2026-09-17">
+      <description>
+        <p>文本粘贴质量修复：Markdown 输出不再混入裸 HTML、公式还原为 $…$、不再硬折行，任务列表 [x]/[ ] 不再被转义，热键增加防抖。</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-09-17">
       <description>
         <p>网页语义恢复：AI 页面公式节点还原为原生公式、样式表加粗/斜体不丢失、表格首行提升表头（实验）；Markdown 块间空行规范化与智能输入识别。</p>
