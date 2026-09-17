@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -44,18 +45,20 @@ class WaylandTests(unittest.TestCase):
         cli.clipboard_handshake(process, b'{}', timeout=3)
 
     def test_auto_prefers_html(self):
-        with patch.object(cli, 'run', side_effect=[b'text/plain\ntext/html\n', b'<p>Hello</p>']) as run:
+        with patch.object(cli, 'run', side_effect=[
+                b'text/plain\ntext/html\n', b'<p>Hello</p>', b'Hello plain']) as run:
             self.assertEqual(cli.read_clipboard('auto'), (b'<p>Hello</p>', 'html' + cli.MATH_EXTENSIONS))
-            self.assertIn('text/html', run.call_args.args[0])
+            self.assertIn('text/html', run.call_args_list[1].args[0])
 
     def test_auto_accepts_html_type_with_charset(self):
         advertised = 'text/html;charset=utf-8'
         with patch.object(cli, 'run', side_effect=[
-                ('text/plain\n' + advertised + '\n').encode(), b'<p>Hello</p>']) as run:
+                ('text/plain\n' + advertised + '\n').encode(), b'<p>Hello</p>',
+                b'Hello']) as run:
             content, reader = cli.read_clipboard('auto')
         self.assertEqual(content, b'<p>Hello</p>')
         self.assertEqual(reader, 'html' + cli.MATH_EXTENSIONS)
-        self.assertEqual(run.call_args.args[0][-1], advertised)
+        self.assertEqual(run.call_args_list[1].args[0][-1], advertised)
 
     def test_markdown_override(self):
         with patch.object(cli, 'run', side_effect=[b'text/html\ntext/plain;charset=utf-8\n', b'# Hello']):
@@ -235,7 +238,7 @@ class WaylandTests(unittest.TestCase):
     def test_finish_docx_applies_upstream_post_processing(self):
         import io
         prepared = cli.prepare_document(
-            '# Heading\n\n段落与 | 表格 | 列 |\n|---|---|\n| a | b |\n'.encode(),
+            '# Heading\n\n段落文本\n\n| 一 | 二 |\n|---|---|\n| a | b |\n'.encode(),
             'markdown' + cli.MATH_EXTENSIONS, {})
         raw = cli.run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-'], prepared)
         ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
@@ -391,6 +394,79 @@ class WaylandTests(unittest.TestCase):
         payload = clipboard.call_args.args[0]
         self.assertEqual(payload['text/plain'], '# 标题\n'.encode())
         self.assertIn('Markdown', notify.call_args.args[0])
+
+    def test_md_normalizer_adds_blank_lines_between_blocks(self):
+        from pastemd.utils.md_normalizer import normalize_markdown
+        text = '# 标题\n正文段落\n## 二级\n- 列表项\n| a | b |\n|---|---|\n| 1 | 2 |'
+        fixed = normalize_markdown(text)
+        lines = fixed.split('\n')
+        self.assertEqual(lines[0], '# 标题')
+        self.assertEqual(lines[1], '')
+        self.assertEqual(lines[2], '正文段落')
+        self.assertIn('\n## 二级\n\n- 列表项', fixed)
+        self.assertIn('\n| a | b |', fixed)
+        # 代码块内部保持原样
+        code = '段落\n```\nline1\nline2\n```\n结尾'
+        self.assertEqual(normalize_markdown(code),
+                         '段落\n\n```\nline1\nline2\n```\n\n结尾')
+
+    def test_extract_font_classes_from_style_blocks(self):
+        html = ('<style>.b{font-weight:bold}.w{font-weight:600}.i{font-style:italic}'
+                '.n{font-weight:normal}.u{color:red}</style>')
+        bold, italic = cli.extract_font_classes(html)
+        self.assertEqual(bold, ['b', 'w'])
+        self.assertEqual(italic, ['i'])
+
+    def test_prefer_plain_over_html_detection(self):
+        plain = '# 标题\n\n- 列表一\n- 列表二\n\n```code```\n**加粗**'
+        wrapped_html = '<span style="color:#333"># 标题</span><br><span>- 列表一</span>'
+        self.assertTrue(cli.prefer_plain_over_html(plain, wrapped_html))
+        structural = '<h1>标题</h1><ul><li>列表</li></ul>'
+        self.assertFalse(cli.prefer_plain_over_html(plain, structural))
+        self.assertFalse(cli.prefer_plain_over_html('', wrapped_html))
+
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_prepare_document_semantic_html_recovery(self):
+        html = (
+            '<style>.fb{font-weight:bold}</style>'
+            '<p><span class="fb">加粗文本</span></p>'
+            '<p><span role="math" data-math-source="E=mc^2">katex</span></p>'
+            '<p><img src="diagram.svg"></p>')
+        ast = json.loads(cli.prepare_document(html.encode(), 'html', {}))
+        # clean_document 会解开 span 包装，但 Strong 应该保留
+        self.assertEqual(ast['blocks'][0]['c'][0]['t'], 'Strong')
+        # 公式源恢复成 Math 元素（c = [类型, 源码]）
+        math = ast['blocks'][1]['c'][0]
+        self.assertEqual(math['t'], 'Math')
+        self.assertEqual(math['c'][1], 'E=mc^2')
+        # .svg 图片被整体移除
+        self.assertNotIn('"Image"', json.dumps(ast))
+
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_prepare_document_bold_first_row_promotion(self):
+        html = ('<table><tr><td><strong>列一</strong></td><td><strong>列二</strong></td></tr>'
+                '<tr><td>a</td><td>b</td></tr></table>')
+        options = {'html_formatting': {'css_font_to_semantic': True,
+                                       'bold_first_row_to_header': True}}
+        ast = json.loads(cli.prepare_document(html.encode(), 'html', options))
+        head_rows = ast['blocks'][0]['c'][3][1]
+        self.assertEqual(len(head_rows), 1)
+        # 默认关闭：表头保持为空
+        ast_default = json.loads(cli.prepare_document(html.encode(), 'html', {}))
+        self.assertEqual(len(ast_default['blocks'][0]['c'][3][1]), 0)
+
+    def test_read_clipboard_prefers_markdown_plain_text(self):
+        types = b'text/html;charset=utf-8\ntext/plain;charset=utf-8\n'
+        wrapped = '<span style="font-family:monospace"># 标题</span>'
+        markdown = '# 标题\n\n- 甲\n- 乙\n- 丙\n\n```py\nx=1\n```\n**粗**'
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), \
+             patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(cli, 'run', side_effect=[
+                 types, wrapped.encode(), markdown.encode()]) as run:
+            content, reader = cli.read_clipboard('auto')
+        self.assertEqual(reader, 'markdown' + cli.MATH_EXTENSIONS)
+        self.assertEqual(content, markdown.encode())
+        self.assertEqual(run.call_args_list[1].args[0][2], '--type')
 
 
 if __name__ == '__main__':

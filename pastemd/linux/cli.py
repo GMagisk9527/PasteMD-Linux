@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import select
 import time
 import shutil
@@ -26,6 +27,7 @@ if not __package__:
 
 from pastemd.utils.docx_processor import DocxProcessor
 from pastemd.utils.latex import convert_latex_delimiters
+from pastemd.utils.md_normalizer import normalize_markdown
 from pastemd.utils.spreadsheet import parse_markdown_table, table_to_html, table_to_tsv
 
 
@@ -85,6 +87,54 @@ def load_conversion_options():
         return {}
 
 
+CSS_CLASS_RE = re.compile(r'\.([A-Za-z_][\w-]*)\s*\{([^}]*)\}')
+FONT_WEIGHT_RE = re.compile(r'font-weight\s*:\s*([^;}]+)')
+FONT_STYLE_RE = re.compile(r'font-style\s*:\s*([^;}]+)')
+STRUCTURAL_TAG_RE = re.compile(
+    r'<(p|h[1-6]|ul|ol|table|pre|blockquote|code)[\s>]', re.IGNORECASE)
+
+# 与上游 PasteMD html_analyzer 相同的 Markdown 特征清单。
+MARKDOWN_HINTS = (
+    '\n#', '\n##', '\n- ', '\n* ', '\n1.', '```', '**', '__',
+    '~~', '> ', '$$', '\\(', '\\)', '|', '\n---', '\n***', '`',
+)
+
+
+def extract_font_classes(html_text):
+    """从 <style> 块提取加粗/斜体 class 名单（pandoc 不读样式表）。"""
+    bold, italic = [], []
+    for match in CSS_CLASS_RE.finditer(html_text):
+        body = match.group(2).lower()
+        weight = FONT_WEIGHT_RE.search(body)
+        if weight:
+            value = weight.group(1).strip()
+            if value in ('bold', 'bolder') or (
+                    value.isdigit() and int(value) >= 600):
+                bold.append(match.group(1))
+        style = FONT_STYLE_RE.search(body)
+        if style and ('italic' in style.group(1) or 'oblique' in style.group(1)):
+            italic.append(match.group(1))
+    return bold, italic
+
+
+def markdown_hint_score(text):
+    """按上游 html_analyzer 的规则对 Markdown 语法特征粗略打分。"""
+    return sum(1 for hint in MARKDOWN_HINTS if hint in text)
+
+
+def prefer_plain_over_html(plain_text, html_text):
+    """剪贴板同时带 text/html 与 text/plain 时，判断是否该走 Markdown 流程。
+
+    复制按钮、VSCode 等常把带内联样式的文本包装成 HTML；这时应使用原始
+    Markdown 文本，而不是丢掉语法标记的样式包装。
+    """
+    if not plain_text.strip():
+        return False
+    if STRUCTURAL_TAG_RE.search(html_text or ''):
+        return False
+    return markdown_hint_score(plain_text) >= 3
+
+
 def _filter_args(options):
     args = []
     for path in options.get('pandoc_filters') or []:
@@ -132,23 +182,39 @@ def finish_docx(docx, reader, options=None):
 
 def prepare_document(content, reader, options=None):
     options = options or {}
+    env = None
     if reader.startswith('markdown'):
         text = content.decode('utf-8', 'replace')
+        text = normalize_markdown(text)
         text = convert_latex_delimiters(
             text, bool(options.get('fix_single_dollar_block', True)))
         content = text.encode('utf-8')
         if options.get('markdown_hard_line_breaks'):
             reader += '+hard_line_breaks'
+    else:
+        html_text = content.decode('utf-8', 'replace')
+        bold_classes, italic_classes = extract_font_classes(html_text)
+        formatting = options.get('html_formatting') or {}
+        env = dict(os.environ)
+        if bold_classes and formatting.get('css_font_to_semantic', True):
+            env['PASTEMD_FONT_BOLD_CLASSES'] = ','.join(bold_classes)
+        if italic_classes and formatting.get('css_font_to_semantic', True):
+            env['PASTEMD_FONT_ITALIC_CLASSES'] = ','.join(italic_classes)
+        if formatting.get('bold_first_row_to_header'):
+            env['PASTEMD_PROMOTE_BOLD_HEADER'] = 'true'
+    args = ['pandoc', '--from', reader, '--to', 'json']
+    if env is not None:
+        args += ['--lua-filter', lua_filter('semantic-html.lua')]
     document = json.loads(run(
-        ['pandoc', '--from', reader, '--to', 'json'] + _stage_filter_args(reader, options),
-        content))
+        args + _stage_filter_args(reader, options), content, env=env))
     document = clean_document(document)
     document['meta'] = {}
     return json.dumps(document, ensure_ascii=False).encode('utf-8')
 
 
-def run(command, data=None):
-    result = subprocess.run(command, input=data, capture_output=True, timeout=60)
+def run(command, data=None, env=None):
+    result = subprocess.run(command, input=data, capture_output=True,
+                            timeout=60, env=env)
     if result.returncode:
         raise RuntimeError(result.stderr.decode('utf-8', 'replace').strip()
                            or f'{command[0]} failed ({result.returncode})')
@@ -162,7 +228,16 @@ def read_clipboard(input_format):
     html = next((kind for kind in types
                  if kind.partition(';')[0].strip().lower() == 'text/html'), None)
     if input_format != 'markdown' and html:
-        return run(['wl-paste', '--no-newline', '--type', html]), 'html' + MATH_EXTENSIONS
+        html_bytes = run(['wl-paste', '--no-newline', '--type', html])
+        if input_format == 'auto':
+            plain = next((t for t in types if t.lower().startswith('text/plain')), None)
+            if plain:
+                plain_text = run(['wl-paste', '--no-newline', '--type', plain]) \
+                    .decode('utf-8', 'replace')
+                if prefer_plain_over_html(
+                        plain_text, html_bytes.decode('utf-8', 'replace')):
+                    return plain_text.encode('utf-8'), 'markdown' + MATH_EXTENSIONS
+        return html_bytes, 'html' + MATH_EXTENSIONS
     if input_format == 'html':
         raise RuntimeError('剪贴板没有 text/html；请复制网页正文或使用 --input markdown。')
     plain = next((t for t in types if t.lower().startswith('text/plain')), None)

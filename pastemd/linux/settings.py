@@ -24,6 +24,10 @@ DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True
             'html_disable_first_para_indent': True,
             'horizontal_rule_style': 'default',
             'docx_auto_table_layout': False,
+            # HTML 语义恢复，键名对齐上游 html_formatting
+            # （删除线 <s>/<strike> 由 pandoc 原生支持，无需转换开关）
+            'html_formatting': {'css_font_to_semantic': True,
+                                'bold_first_row_to_header': False},
             'pandoc_request_headers': [DEFAULT_UA],
             'pandoc_filters': [],
             # 可扩展工作流（应用扩展规则），结构与上游 extensible_workflows 一致
@@ -79,6 +83,14 @@ def load_settings():
                       'apps': [app for app in apps if isinstance(app, dict)]
                       if isinstance(apps, list) else []}
     result['extensible_workflows'] = clean
+    saved_formatting = result.get('html_formatting')
+    clean_formatting = {}
+    for key, default in (('css_font_to_semantic', True),
+                         ('bold_first_row_to_header', False)):
+        value = saved_formatting.get(key, default) \
+            if isinstance(saved_formatting, dict) else default
+        clean_formatting[key] = value if isinstance(value, bool) else default
+    result['html_formatting'] = clean_formatting
     return result
 
 

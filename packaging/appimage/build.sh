@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="linux-v0.2.0"
+version="linux-v0.3.0"
 appdir="$root/build/appimage/PasteMD-Linux.AppDir"
 pyinstaller="$root/.build-venv/bin/pyinstaller"
 meson="$root/.build-venv/bin/meson"

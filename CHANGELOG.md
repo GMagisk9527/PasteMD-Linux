@@ -1,6 +1,28 @@
 # 更新日志
 
-## 0.2.0-linux（2025-09-17）
+## 0.3.0-linux（2026-09-17）
+
+### 新增
+
+- **网页语义恢复（对齐上游 HTML 预处理）**：
+  - AI 页面公式节点（`data-math-source` / `copy-text` 属性）直接还原为
+    原生公式，覆盖元宝等国内 AI 站点的"渲染层损坏"剪贴板；
+  - WPS/Excel 复制的表格把样式写在 `<style>` 的 class 里，Pandoc 不读
+    样式表，现在会解析并还原 class 级加粗/斜体
+    （`html_formatting.css_font_to_semantic`，默认开）；
+  - 表格首行全加粗时提升为真表头（`html_formatting.bold_first_row_to_header`，
+    实验，默认关）；
+  - `.svg` 位图引用提前剔除，不再误报图片丢失。
+- **Markdown 规范化（移植上游 md_normalizer）**：标题/代码块/表格/列表/
+  引用之间的缺失空行自动补齐，AI 输出的粘连段落不再被并成一段。
+- **智能输入识别（移植上游 html_analyzer 思路）**：剪贴板同时带
+  `text/html` 与 `text/plain` 时，若 HTML 只是内联样式包装而纯文本带足
+  Markdown 特征，自动改走 Markdown 流程——从 VSCode 等编辑器复制时
+  语法标记不再丢失。
+- 删除线 `<s>/<strike>` 由 Pandoc 原生支持（上游的
+  `html_formatting.strikethrough_to_del` 在本分支为无操作，保留键名兼容）。
+
+## 0.2.0-linux（2026-09-17）
 
 ### 新增
 

@@ -260,6 +260,13 @@ class MainWindow(QMainWindow):
         self.auto_tables = QCheckBox('表格按内容自动调整列宽（实验）')
         self.auto_tables.setChecked(self.settings['docx_auto_table_layout'])
         enhance_form.addRow(self.auto_tables)
+        formatting = self.settings['html_formatting']
+        self.font_semantic = QCheckBox('恢复样式表中的加粗/斜体（WPS 表格、网页复制）')
+        self.font_semantic.setChecked(formatting.get('css_font_to_semantic', True))
+        enhance_form.addRow(self.font_semantic)
+        self.bold_header = QCheckBox('表格首行全加粗时提升为表头（实验）')
+        self.bold_header.setChecked(formatting.get('bold_first_row_to_header', False))
+        enhance_form.addRow(self.bold_header)
         reference_row = QHBoxLayout()
         self.reference_edit = QLineEdit(str(self.settings['reference_docx'] or ''))
         self.reference_edit.setPlaceholderText('Pandoc 参考文档模板（.docx），留空使用默认样式')
@@ -429,6 +436,8 @@ class MainWindow(QMainWindow):
             'html_disable_first_para_indent': self.html_indent.isChecked(),
             'horizontal_rule_style': self.rule_style.currentData(),
             'docx_auto_table_layout': self.auto_tables.isChecked(),
+            'html_formatting': {'css_font_to_semantic': self.font_semantic.isChecked(),
+                                'bold_first_row_to_header': self.bold_header.isChecked()},
             'reference_docx': self.reference_edit.text().strip() or None,
             'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
                                if line.strip()],

@@ -396,6 +396,35 @@ class DesktopTests(unittest.TestCase):
                          {'enabled': True, 'apps': []})
         self.assertNotIn('file', loaded['extensible_workflows'])
 
+    def test_settings_html_formatting_roundtrip_and_sanitize(self):
+        values = dict(settings.DEFAULTS)
+        values['html_formatting'] = {'css_font_to_semantic': False,
+                                     'bold_first_row_to_header': True}
+        settings.save_settings(values)
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['html_formatting'],
+                         {'css_font_to_semantic': False,
+                          'bold_first_row_to_header': True})
+        config = settings.config_file()
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({'html_formatting': {
+            'css_font_to_semantic': 'yes', 'bold_first_row_to_header': True,
+            'strikethrough_to_del': False}}))
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['html_formatting'],
+                         {'css_font_to_semantic': True,
+                          'bold_first_row_to_header': True})
+
+    def test_gui_save_persists_html_formatting(self):
+        window = self.window()
+        window.font_semantic.setChecked(False)
+        window.bold_header.setChecked(True)
+        window.save()
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['html_formatting'],
+                         {'css_font_to_semantic': False,
+                          'bold_first_row_to_header': True})
+
     def test_converted_reports_ready_table(self):
         window = self.window()
         window.want_paste = False

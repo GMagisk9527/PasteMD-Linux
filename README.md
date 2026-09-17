@@ -13,6 +13,7 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 - 粘贴前核对窗口和文档焦点，避免内容进入其他应用
 - 支持 Markdown、网页 HTML、行内公式、块级公式、表格和常用 LaTeX 结构
 - 转换增强与上游对齐：LaTeX 语法修复、单 `$` 公式块修复、样式模板、表格自动列宽、自定义 Pandoc 过滤器
+- 网页语义恢复：AI 页面公式节点还原为原生公式、样式表加粗/斜体不丢失、Markdown 块间空行规范化
 - 智能识别前台窗口：WPS 表格窗口自动改走 Markdown 表格 → HTML 表格粘贴（实验）
 - 应用扩展规则：按窗口把粘贴格式切换为 Markdown / LaTeX / HTML 文本，适配语雀、Notion 等
 - 可生成并打开独立 DOCX 文件
@@ -27,8 +28,8 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 AppImage 已包含 PasteMD、Pandoc 和 `wl-paste`，下载后直接运行：
 
 ```bash
-chmod +x PasteMD-Linux-linux-v0.2.0-x86_64.AppImage
-./PasteMD-Linux-linux-v0.2.0-x86_64.AppImage
+chmod +x PasteMD-Linux-linux-v0.3.0-x86_64.AppImage
+./PasteMD-Linux-linux-v0.3.0-x86_64.AppImage
 ```
 
 ### Flatpak
@@ -36,7 +37,7 @@ chmod +x PasteMD-Linux-linux-v0.2.0-x86_64.AppImage
 下载 `.flatpak` 文件后安装并启动：
 
 ```bash
-flatpak install --user ./PasteMD-Linux-linux-v0.2.0-x86_64.flatpak
+flatpak install --user ./PasteMD-Linux-linux-v0.3.0-x86_64.flatpak
 flatpak run io.github.GMagisk9527.PasteMDLinux
 ```
 
@@ -114,7 +115,7 @@ python3 -m unittest discover -s tests -p 'test_linux_desktop.py'
 发布包还可以执行不修改剪贴板的转换自检：
 
 ```bash
-./PasteMD-Linux-linux-v0.2.0-x86_64.AppImage --appimage-extract-and-run --package-self-test
+./PasteMD-Linux-linux-v0.3.0-x86_64.AppImage --appimage-extract-and-run --package-self-test
 flatpak run io.github.GMagisk9527.PasteMDLinux --package-self-test
 ```
 

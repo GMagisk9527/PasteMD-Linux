@@ -145,6 +145,9 @@ python3 scripts/pastemd-wayland.py --table
 - `md_disable_first_para_indent` / `html_disable_first_para_indent`：禁用 Pandoc 的首段缩进样式，统一为正文样式（默认开）。
 - `horizontal_rule_style`：`default` 保留 Pandoc 横线，`paragraph_border` 转为 WPS/Word 段落边框线。
 - `docx_auto_table_layout`：按内容自动调整表格列宽（实验，默认关）。
+- `html_formatting.css_font_to_semantic`：恢复样式表 `<style>` 里 class 定义的加粗/斜体
+  （WPS/Excel 复制的表格常用；默认开）。删除线 `<s>/<strike>` 由 Pandoc 原生支持，无需开关。
+- `html_formatting.bold_first_row_to_header`：表格首行全加粗时提升为真表头（实验，默认关）。
 - `enable_excel`：热键时前台是 WPS 表格（`et`/`ket`）则自动改用表格粘贴流程（默认开，见"智能表格粘贴"）。
 - `reference_docx`：Pandoc 参考文档模板路径，套用自定义字体、页边距和样式。
 - `pandoc_request_headers`：抓取远程图片时的请求头（默认带浏览器 User-Agent）。
@@ -153,6 +156,12 @@ python3 scripts/pastemd-wayland.py --table
 ## 实现与限制
 
 - Pandoc 将网页/Markdown 解析成文档结构，清理页面偏移、隐藏 span/div 包装以及重复 KaTeX 展示层。
+- HTML 解析阶段运行语义恢复过滤器：AI 页面常见公式节点（`data-math-source`、
+  `copy-text`）直接还原为原生公式；样式表 class 的加粗/斜体包装回 Strong/Emph；
+  `.svg` 位图提前剔除。Markdown 输入先做块间空行规范化（对齐上游 `md_normalizer`）。
+- 自动输入识别：剪贴板同时带 `text/html` 与 `text/plain` 时，若 HTML 只是内联样式包装
+  （无结构性标签）而纯文本带足 Markdown 特征（对齐上游 `html_analyzer` 打分），改走
+  Markdown 流程，避免从 VSCode/编辑器复制时语法标记丢失。
 - 生成包含 OMML 原生公式的 DOCX，并校验公式数量；转换失败或公式数减少时不写剪贴板。
 - 实际检查 WPS 原生复制样本发现，其 `Kingsoft WPS 9.0 Format` 内容为 DOCX ZIP。PySide6 通过 XWayland 向这个格式写入完整 DOCX，同时提供纯文本。
 - 不提供 HTML 或 RTF 图片回退，避免 WPS 优先选择它们而丢失公式编辑能力。
