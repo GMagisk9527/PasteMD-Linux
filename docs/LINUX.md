@@ -96,6 +96,26 @@ python3 scripts/pastemd-wayland.py --clipboard
 保存的 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
 默认剪贴板模式在内存中生成、传递 DOCX，不保存中间文档。
 
+## 智能表格粘贴（实验，适配 WPS 表格）
+
+热键触发时若前台是 WPS 表格（WM_CLASS 为 `et`/`ket`），PasteMD 会改走表格流程：
+
+1. 正常复制 Markdown 表格，或包含表格的网页内容。
+2. 在 WPS 表格中把光标放到目标位置，按热键。
+3. PasteMD 解析表格（纯文本优先；只有 HTML 时用 Pandoc 转成 Markdown 再解析），
+   以 `text/html` 表格加 `text/plain` TSV 兜底写入剪贴板，并自动粘贴。
+
+表格首行渲染为加粗底色表头，单元格支持加粗、斜体、删除线、行内代码和超链接。
+前台是 WPS 文字或其他窗口时仍是文档流程，行为不变。开关在设置页
+"WPS 表格窗口自动改用表格粘贴"，对应配置键 `enable_excel`（与上游同名）。
+
+命令行也可以单独验证表格链路：
+
+```bash
+# 复制一个 Markdown 表格后执行，随后在 WPS 表格中 Ctrl+V
+python3 scripts/pastemd-wayland.py --table
+```
+
 ## 转换增强（对齐上游 PasteMD）
 
 以下选项与上游 RICHQAQ/PasteMD 的 `config.json` 键名一致，可在设置页调整，或直接编辑
@@ -108,6 +128,7 @@ python3 scripts/pastemd-wayland.py --clipboard
 - `md_disable_first_para_indent` / `html_disable_first_para_indent`：禁用 Pandoc 的首段缩进样式，统一为正文样式（默认开）。
 - `horizontal_rule_style`：`default` 保留 Pandoc 横线，`paragraph_border` 转为 WPS/Word 段落边框线。
 - `docx_auto_table_layout`：按内容自动调整表格列宽（实验，默认关）。
+- `enable_excel`：热键时前台是 WPS 表格（`et`/`ket`）则自动改用表格粘贴流程（默认开，见"智能表格粘贴"）。
 - `reference_docx`：Pandoc 参考文档模板路径，套用自定义字体、页边距和样式。
 - `pandoc_request_headers`：抓取远程图片时的请求头（默认带浏览器 User-Agent）。
 - `pandoc_filters`：追加自定义 Pandoc 过滤器（`.lua` 或可执行文件），作用于解析阶段。

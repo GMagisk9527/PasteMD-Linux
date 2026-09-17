@@ -278,6 +278,66 @@ class WaylandTests(unittest.TestCase):
             return sum(map(WaylandTests._count_math, value))
         return 0
 
+    def test_markdown_table_parser(self):
+        from pastemd.utils.spreadsheet import parse_markdown_table
+        table = parse_markdown_table(
+            '| 名称 | 值 |\n|---|---|\n| a\\|b | **粗** |\n| `c` | [链接](https://x.y) |')
+        self.assertEqual(table, [['名称', '值'], ['a|b', '**粗**'], ['`c`', '[链接](https://x.y)']])
+        self.assertEqual(parse_markdown_table('| 名称 |\n|---|\n| 值 |'), [['名称'], ['值']])
+        self.assertEqual(parse_markdown_table('a | b\n--- | ---\n1 | 2'),
+                         [['a', 'b'], ['1', '2']])
+        self.assertIsNone(parse_markdown_table('没有表格的文本'))
+        self.assertIsNone(parse_markdown_table('| 只有表头 |'))
+
+    def test_table_html_and_tsv_rendering(self):
+        from pastemd.utils.spreadsheet import table_to_html, table_to_tsv
+        html = table_to_html([['名称', '值'], ['a|b', '**粗**`code`']])
+        self.assertIn('<th', html)
+        self.assertIn('<b>粗</b>', html)
+        self.assertIn('<code>code</code>', html)
+        self.assertIn('a|b', html)
+        self.assertEqual(table_to_tsv([['名称', '值'], ['a|b', 'plain']]),
+                         '名称\t值\na|b\tplain')
+
+    def test_table_clipboard_payload_formats(self):
+        payload, rows = cli.table_clipboard_payload('| 名称 | 值 |\n|---|---|\n| a | b |')
+        self.assertEqual(rows, 2)
+        self.assertEqual(sorted(payload), ['text/html', 'text/plain'])
+        self.assertIn(b'<table>', payload['text/html'])
+        self.assertEqual(payload['text/plain'].decode('utf-8'), '名称\t值\na\tb')
+
+    def test_table_payload_rejects_non_table(self):
+        with self.assertRaisesRegex(RuntimeError, '没有 Markdown 表格'):
+            cli.table_clipboard_payload('普通文本，没有表格')
+
+    def test_read_table_source_prefers_plain_then_html(self):
+        with patch.object(cli, 'run', side_effect=[
+                b'text/plain;charset=utf-8\ntext/html\n',
+                '| a | b |\n|---|---|\n| 1 | 2 |'.encode()]) as run:
+            text = cli.read_table_source()
+        self.assertIn('| a | b |', text)
+        self.assertEqual(run.call_args_list[1].args[0][1], '--no-newline')
+
+    def test_read_table_source_converts_html_tables(self):
+        html = '<table><tr><th>a</th></tr><tr><td>1</td></tr></table>'
+        with patch.object(cli, 'run', side_effect=[
+                b'text/html\n', html.encode(), '| a |\n|---|\n| 1 |'.encode()]) as run:
+            text = cli.read_table_source()
+        self.assertIn('| a |', text)
+        self.assertEqual(run.call_args_list[2].args[0][:2], ['pandoc', '--from'])
+        self.assertEqual(run.call_args_list[2].args[0][-1], 'gfm')
+
+    def test_cli_table_mode_writes_html_clipboard(self):
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), \
+             patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(cli, 'read_table_source', return_value='| 名称 |\n|---|\n| 值 |'), \
+             patch.object(cli, 'notify') as notify, \
+             patch.object(cli, 'set_clipboard_payload') as clipboard:
+            self.assertEqual(cli.main(['--table'], options={}), 0)
+        payload = clipboard.call_args.args[0]
+        self.assertIn(b'<table>', payload['text/html'])
+        self.assertIn('表格已就绪（2 行）', notify.call_args.args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

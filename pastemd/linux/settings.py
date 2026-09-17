@@ -12,6 +12,7 @@ DEFAULT_UA = ('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
 DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True,
             'input_format': 'auto', 'paste_delay_ms': 250, 'notifications': True,
             # 转换增强，键名与上游 RICHQAQ/PasteMD 的 config.json 对齐
+            'enable_excel': True,
             'reference_docx': None,
             'keep_original_formula': False,
             'enable_latex_replacements': True,

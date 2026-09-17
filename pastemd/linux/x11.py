@@ -49,7 +49,26 @@ class X11Paste:
         """Match WM_CLASS variants loosely: wps, kwps, wpsoffice, com.wps.*."""
         return any('wps' in name for name in names)
 
-    def focused_wps(self):
+    @staticmethod
+    def classify(names):
+        """Classify a WPS window: writer, spreadsheet, presentation or None.
+
+        Names are tried in order so res_name wins over res_class; 'et' uses
+        exact tokens to avoid matching unrelated apps (net, get, terminal…).
+        """
+        import re
+        for name in names:
+            if 'wps' in name:
+                return 'writer'
+            tokens = {name, *filter(None, re.split(r'[^a-z0-9]+', name))}
+            if tokens & {'et', 'ket'}:
+                return 'spreadsheet'
+            if tokens & {'wpp', 'kwpp'}:
+                return 'presentation'
+        return None
+
+    def focused_app(self):
+        """(window, title, kind) of the focused WPS-suite window, else None."""
         with self._errors():
             focus, revert = C.c_ulong(), C.c_int()
             self.x.XGetInputFocus(self.display, C.byref(focus), C.byref(revert))
@@ -64,13 +83,14 @@ class X11Paste:
                         if value:
                             names.append(C.string_at(value).decode('utf-8', 'replace').lower())
                             self.x.XFree(value)
-                if self.is_wps(names):
+                kind = self.classify(names)
+                if kind:
                     title_ptr = C.c_void_p()
                     title = b''
                     if self.x.XFetchName(self.display, current, C.byref(title_ptr)) and title_ptr.value:
                         title = C.string_at(title_ptr.value)
                         self.x.XFree(title_ptr)
-                    return current, title
+                    return current, title, kind
                 root, parent = C.c_ulong(), C.c_ulong()
                 children, count = C.POINTER(C.c_ulong)(), C.c_uint()
                 if not self.x.XQueryTree(self.display, current, C.byref(root), C.byref(parent), C.byref(children), C.byref(count)):
@@ -80,6 +100,13 @@ class X11Paste:
                 if current == parent.value:
                     return None
                 current = parent.value
+        return None
+
+    def focused_wps(self):
+        """Legacy view of focused_app(): the (window, title) of WPS 文字 only."""
+        app = self.focused_app()
+        if app and app[2] == 'writer':
+            return app[0], app[1]
         return None
 
     def modifiers_held(self):
@@ -92,7 +119,7 @@ class X11Paste:
         return False
 
     def paste(self, target):
-        if not target or self.focused_wps() != target:
+        if not target or self.focused_app() != target:
             raise RuntimeError('WPS 窗口或文档焦点已变化，内容已准备好，请手动 Ctrl+V。')
         if self.modifiers_held():
             raise RuntimeError('快捷键尚未松开，内容已准备好，请手动 Ctrl+V。')

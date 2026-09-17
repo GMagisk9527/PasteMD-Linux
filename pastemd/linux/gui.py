@@ -30,13 +30,21 @@ class ConversionWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, input_format, demo=False, open_docx=False, options=None, parent=None):
+    def __init__(self, input_format, demo=False, open_docx=False, options=None, flow='doc', parent=None):
         super().__init__(parent)
         self.input_format, self.demo, self.open_docx = input_format, demo, open_docx
         self.options = options or {}
+        self.flow = flow
 
     def run(self):
         try:
+            if self.flow == 'table':
+                payload, rows = cli.table_clipboard_payload(cli.read_table_source())
+                token = uuid.uuid4().hex.encode('ascii')
+                payload[CLIPBOARD_TOKEN_MIME] = token
+                cli.set_clipboard_payload(payload)
+                self.completed.emit({'clipboard': True, 'token': token, 'rows': rows})
+                return
             if self.demo:
                 source, reader = cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
             else:
@@ -82,6 +90,7 @@ class MainWindow(QMainWindow):
         self.want_paste = False
         self.clipboard_token = None
         self.lost_images = 0
+        self.flow = 'doc'
         self.paste_deadline = 0
         self.x11 = None
         self.hotkey = None
@@ -202,6 +211,9 @@ class MainWindow(QMainWindow):
         settings_form.addRow(self.autostart)
         controls.addLayout(settings_form)
         enhance_form = QFormLayout()
+        self.excel_enabled = QCheckBox('WPS 表格窗口自动改用表格粘贴（实验）')
+        self.excel_enabled.setChecked(self.settings['enable_excel'])
+        enhance_form.addRow(self.excel_enabled)
         self.keep_formula = QCheckBox('保留 LaTeX 原始公式（以 $…$ 文本插入）')
         self.keep_formula.setChecked(self.settings['keep_original_formula'])
         enhance_form.addRow(self.keep_formula)
@@ -362,6 +374,7 @@ class MainWindow(QMainWindow):
             'hotkey_enabled': self.hotkey_enabled.isChecked(), 'auto_paste': self.auto_paste.isChecked(),
             'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
             'notifications': self.notifications.isChecked(),
+            'enable_excel': self.excel_enabled.isChecked(),
             'keep_original_formula': self.keep_formula.isChecked(),
             'enable_latex_replacements': self.latex_fix.isChecked(),
             'fix_single_dollar_block': self.dollar_fix.isChecked(),
@@ -424,14 +437,19 @@ class MainWindow(QMainWindow):
             self.report('正在处理，请稍候。')
             return
         self.target = None
+        self.flow = 'doc'
         paste_now = paste and self.settings['auto_paste']
         if paste_now and self.x11:
-            self.target = self.x11.focused_wps()
-            if self.target is None:
+            app = self.x11.focused_app()
+            if app is None:
                 self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
+            else:
+                self.target = app
+                if app[2] == 'spreadsheet' and self.settings.get('enable_excel', True):
+                    self.flow = 'table'
         self.want_paste = paste_now and self.target is not None
         self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx,
-                                       options=dict(self.settings), parent=self)
+                                       options=dict(self.settings), flow=self.flow, parent=self)
         self.worker.completed.connect(self._converted)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
         self.worker.finished.connect(self._worker_finished)
@@ -470,6 +488,8 @@ class MainWindow(QMainWindow):
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
+        elif 'rows' in result:
+            self.report(f"表格已就绪（{result['rows']} 行），请在 WPS 表格中按 Ctrl+V。", notify=True)
         else:
             self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。' + lost_note, notify=True)
 
@@ -477,7 +497,7 @@ class MainWindow(QMainWindow):
         if time.monotonic() < self.paste_ready_at:
             return
         try:
-            if self.x11.focused_wps() != self.target:
+            if self.x11.focused_app() != self.target:
                 raise RuntimeError('焦点已变化，内容已就绪，请在 WPS 中手动 Ctrl+V。')
             if self.x11.modifiers_held():
                 if time.monotonic() < self.paste_deadline:
@@ -488,8 +508,11 @@ class MainWindow(QMainWindow):
             if not self.clipboard_token or token_data is None or bytes(token_data) != self.clipboard_token:
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target)
-            lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
-            self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。' + lost_note, notify=True)
+            if self.flow == 'table':
+                self.report('已向 WPS 表格发送粘贴。', notify=True)
+            else:
+                lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
+                self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。' + lost_note, notify=True)
         except Exception as error:
             self.report(str(error), notify=True)
         self.paste_timer.stop()

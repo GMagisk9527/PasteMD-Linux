@@ -170,7 +170,7 @@ class DesktopTests(unittest.TestCase):
         window = self.window()
         window.x11 = Mock()
         window.target = (10, b'docx')
-        window.x11.focused_wps.return_value = (11, b'other')
+        window.x11.focused_app.return_value = (11, b'other')
         window.paste_pending = True
         window.paste_ready_at = 0
         window._try_paste()
@@ -182,7 +182,7 @@ class DesktopTests(unittest.TestCase):
         window = self.window()
         window.x11 = Mock()
         window.target = (10, b'docx')
-        window.x11.focused_wps.return_value = window.target
+        window.x11.focused_app.return_value = window.target
         window.x11.modifiers_held.return_value = True
         window.paste_pending = True
         window.paste_ready_at = 0
@@ -202,7 +202,7 @@ class DesktopTests(unittest.TestCase):
         window = self.window()
         window.x11 = Mock()
         window.target = (10, b'docx')
-        window.x11.focused_wps.return_value = window.target
+        window.x11.focused_app.return_value = window.target
         window.x11.modifiers_held.return_value = False
         window.clipboard_token = b'original'
         window.paste_pending = True
@@ -228,7 +228,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_paste_backend_refuses_changed_target_before_key_events(self):
         backend = X11Paste.__new__(X11Paste)
-        backend.focused_wps = Mock(return_value=(11, b'other'))
+        backend.focused_app = Mock(return_value=(11, b'other'))
         backend.xtest = Mock()
         with self.assertRaises(RuntimeError):
             backend.paste((10, b'docx'))
@@ -247,11 +247,62 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(X11Paste.is_wps(['kwrite']))
         self.assertFalse(X11Paste.is_wps([]))
 
+    def test_window_classification_routes_wps_suites(self):
+        classify = X11Paste.classify
+        self.assertEqual(classify(['wps']), 'writer')
+        self.assertEqual(classify(['kwps']), 'writer')
+        self.assertEqual(classify(['wpsoffice']), 'writer')
+        self.assertEqual(classify(['et', 'wps']), 'spreadsheet')
+        self.assertEqual(classify(['ket', 'ket']), 'spreadsheet')
+        self.assertEqual(classify(['et.exe', 'Et']), 'spreadsheet')
+        self.assertEqual(classify(['wpp', 'wps']), 'presentation')
+        self.assertIsNone(classify(['kwrite']))
+        self.assertIsNone(classify(['get', 'net']))
+        self.assertIsNone(classify([]))
+
+    def test_spreadsheet_focus_routes_to_table_flow(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = (10, '表格', 'spreadsheet')
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'table')
+        self.assertTrue(window.want_paste)
+        self.assertEqual(worker.call_args.kwargs['flow'], 'table')
+
+    def test_spreadsheet_flow_disabled_keeps_document_flow(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = (10, '表格', 'spreadsheet')
+        window.settings['enable_excel'] = False
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'doc')
+        self.assertEqual(worker.call_args.kwargs['flow'], 'doc')
+
+    def test_writer_focus_keeps_document_flow(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = (11, '文档', 'writer')
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'doc')
+        self.assertTrue(window.want_paste)
+
+    def test_converted_reports_ready_table(self):
+        window = self.window()
+        window.want_paste = False
+        window._converted({'clipboard': True, 'token': b't', 'rows': 5})
+        self.assertIn('表格已就绪（5 行）', window.log.toPlainText())
+
     def test_convert_reports_missing_wps_focus(self):
         window = self.window()
         window.smoke = False
         window.x11 = Mock()
-        window.x11.focused_wps.return_value = None
+        window.x11.focused_app.return_value = None
         with patch('pastemd.linux.gui.ConversionWorker') as worker:
             window.convert(paste=True)
         self.assertIn('未找到获得焦点的 WPS 窗口', window.log.toPlainText())
@@ -289,7 +340,7 @@ class DesktopTests(unittest.TestCase):
         window = self.window()
         window.x11 = Mock()
         window.target = (10, b'docx')
-        window.x11.focused_wps.return_value = window.target
+        window.x11.focused_app.return_value = window.target
         window.x11.modifiers_held.return_value = False
         window.clipboard_token = b'sample'
         window.lost_images = 3

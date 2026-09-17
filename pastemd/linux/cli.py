@@ -26,6 +26,7 @@ if not __package__:
 
 from pastemd.utils.docx_processor import DocxProcessor
 from pastemd.utils.latex import convert_latex_delimiters
+from pastemd.utils.spreadsheet import parse_markdown_table, table_to_html, table_to_tsv
 
 
 MATH_EXTENSIONS = '+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash'
@@ -176,6 +177,33 @@ def notify(message):
             run(['notify-send', 'PasteMD', message])
         except (OSError, RuntimeError, subprocess.TimeoutExpired):
             pass
+
+
+def read_table_source():
+    """Clipboard text for table parsing; converts HTML tables via Pandoc when needed."""
+    types = [kind.strip() for kind in
+             run(['wl-paste', '--list-types']).decode('utf-8', 'replace').splitlines()
+             if kind.strip()]
+    plain = next((t for t in types if t.lower().startswith('text/plain')), None)
+    if plain:
+        return run(['wl-paste', '--no-newline', '--type', plain]).decode('utf-8', 'replace')
+    html = next((kind for kind in types
+                 if kind.partition(';')[0].strip().lower() == 'text/html'), None)
+    if html:
+        raw = run(['wl-paste', '--no-newline', '--type', html])
+        return run(['pandoc', '--from', 'html', '--to', 'gfm'], raw).decode('utf-8', 'replace')
+    raise RuntimeError('剪贴板没有文本，无法识别表格。请复制 Markdown 表格或网页表格。')
+
+
+def table_clipboard_payload(markdown_text):
+    """Build the text/html + text/plain payload for WPS 表格, with row count."""
+    table = parse_markdown_table(markdown_text)
+    if not table:
+        raise RuntimeError('剪贴板中没有 Markdown 表格。请复制带 |---| 分隔符的表格，'
+                           '或包含表格的网页内容。')
+    payload = {'text/html': table_to_html(table).encode('utf-8'),
+               'text/plain': table_to_tsv(table).encode('utf-8')}
+    return payload, len(table)
 
 
 def open_in_wps(path):
@@ -349,11 +377,12 @@ def main(argv=None, options=None):
     parser.add_argument('--input', choices=['auto', 'markdown', 'html'], default='auto')
     output = parser.add_mutually_exclusive_group()
     output.add_argument('--clipboard', action='store_true', help='写入 WPS 原生 DOCX 剪贴板（默认），随后在 WPS 按 Ctrl+V')
+    output.add_argument('--table', action='store_true', help='识别剪贴板中的 Markdown 表格，写入 HTML 表格剪贴板（适配 WPS 表格）')
     output.add_argument('--docx', action='store_true', help='保存 DOCX，而不是替换剪贴板')
     output.add_argument('--open', action='store_true', help='用 WPS 打开生成的 DOCX（隐含 --docx）')
     args = parser.parse_args(argv)
     open_docx = args.open
-    use_clipboard = not (args.docx or args.open)
+    use_clipboard = not (args.docx or args.open or args.table)
     options = load_conversion_options() if options is None else options
     try:
         if not os.environ.get('WAYLAND_DISPLAY'):
@@ -364,6 +393,13 @@ def main(argv=None, options=None):
         missing = [tool for tool in required if not shutil.which(tool)]
         if missing:
             raise RuntimeError('缺少命令：' + ', '.join(missing) + '。转换依赖：sudo dnf install pandoc wl-clipboard python3-pyside6；WPS 需单独安装。')
+        if args.table:
+            payload, rows = table_clipboard_payload(read_table_source())
+            set_clipboard_payload(payload)
+            message = f'表格已就绪（{rows} 行），请在 WPS 表格中按 Ctrl+V。'
+            notify(message)
+            print(message)
+            return 0
         if args.demo:
             content = DEMO_MARKDOWN.encode('utf-8')
             reader = 'markdown' + MATH_EXTENSIONS
