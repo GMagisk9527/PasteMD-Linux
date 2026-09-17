@@ -113,15 +113,14 @@ class KWinFocus:
         return self._receiver.caption, self._receiver.resource_class
 
     def focused_app(self):
-        """(token, caption, kind)——与 X11Paste.focused_app 同构，kind 为 None 时整体 None。"""
+        """(token, caption, kind, resource_class)——kind 可为 None（非 WPS 窗口）。"""
         info = self.active_window()
         if not info:
             return None
         caption, resource_class = info
-        kind = self._classify([resource_class.lower()], caption)
-        if not kind:
-            return None
-        return f'kwin:{self._name}', caption, kind
+        resource_class = (resource_class or '').lower()
+        kind = self._classify([resource_class], caption)
+        return f'kwin:{self._name}', caption, kind, resource_class
 
     def close(self):
         if self._conn is not None and self._conn.isConnected():

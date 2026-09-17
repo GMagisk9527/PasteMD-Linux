@@ -338,6 +338,60 @@ class WaylandTests(unittest.TestCase):
         self.assertIn(b'<table>', payload['text/html'])
         self.assertIn('表格已就绪（2 行）', notify.call_args.args[0])
 
+    def test_apprules_match_semantics(self):
+        from pastemd.utils import apprules
+        hit_class = {'name': '语雀', 'class': 'yuque'}
+        self.assertTrue(apprules.match_app(hit_class, 'yuque', '语雀文档'))
+        self.assertTrue(apprules.match_app({'class': 'et'}, 'et.exe', '表格'))
+        self.assertFalse(apprules.match_app({'class': 'et'}, 'wpsoffice', 'WPS'))
+        self.assertFalse(apprules.match_app({'class': 'et'}, 'netease-cloud', '云音乐'))
+        hit_title = {'name': '文档', 'window_patterns': ['语雀']}
+        self.assertTrue(apprules.match_app(hit_title, 'chrome', '语雀 - Google Chrome'))
+        self.assertFalse(apprules.match_app(hit_title, 'chrome', '首页 - Google Chrome'))
+        both = {'name': 'x', 'class': 'yuque', 'window_patterns': ['语雀']}
+        self.assertFalse(apprules.match_app(both, 'chrome', '语雀 - Chrome'))
+        self.assertIsNone(apprules.active_flow({}, 'yuque', '语雀'))
+        workflows = {'md': {'enabled': True, 'apps': [hit_class]},
+                     'html': {'enabled': False, 'apps': [{'class': 'yuque'}]}}
+        self.assertEqual(apprules.active_flow(workflows, 'yuque', '语雀'), 'md')
+
+    def test_apprules_parse_and_format_round_trip(self):
+        from pastemd.utils import apprules
+        text = '# 注释\n语雀 | yuque | 语雀\n纯标题 || Notion\n'
+        apps = apprules.parse_rules(text)
+        self.assertEqual(apps, [
+            {'name': '语雀', 'class': 'yuque', 'window_patterns': ['语雀']},
+            {'name': '纯标题', 'window_patterns': ['Notion']}])
+        self.assertEqual(apprules.parse_rules(apprules.format_rules(apps)), apps)
+
+    def test_text_clipboard_payload_formats(self):
+        payload = cli.text_clipboard_payload('正文'.encode(), b'ast', 'markdown', 'md')
+        self.assertEqual(payload, {'text/plain': '正文'.encode()})
+        html_doc = b'<p>hello</p>'
+        payload = cli.text_clipboard_payload(html_doc, b'ast', 'html', 'html')
+        self.assertEqual(payload, {'text/html': html_doc})
+        with patch.object(cli, 'run', return_value=b'latex out') as run:
+            payload = cli.text_clipboard_payload(b'x', b'ast', 'markdown+tex', 'latex')
+        self.assertEqual(payload['text/plain'], b'latex out')
+        self.assertEqual(run.call_args.args[0][-2:], ['--to', 'latex'])
+        self.assertEqual(run.call_args.args[0][:4], ['pandoc', '--from', 'json', '--to'])
+        with patch.object(cli, 'run', return_value=b'md out'):
+            payload = cli.text_clipboard_payload(b'<p>x</p>', b'ast', 'html', 'md')
+        self.assertEqual(payload['text/plain'], b'md out')
+        with self.assertRaisesRegex(RuntimeError, '未知的目标格式'):
+            cli.text_clipboard_payload(b'x', b'ast', 'markdown', 'rtf')
+
+    def test_cli_as_flag_writes_plain_text(self):
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), \
+             patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(cli, 'read_clipboard', return_value=('# 标题\n'.encode(), 'markdown')), \
+             patch.object(cli, 'notify') as notify, \
+             patch.object(cli, 'set_clipboard_payload') as clipboard:
+            self.assertEqual(cli.main(['--as', 'md'], options={}), 0)
+        payload = clipboard.call_args.args[0]
+        self.assertEqual(payload['text/plain'], '# 标题\n'.encode())
+        self.assertIn('Markdown', notify.call_args.args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

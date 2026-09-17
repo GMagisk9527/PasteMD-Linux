@@ -22,6 +22,7 @@ from .kwin import KWinFocus
 from .settings import (ROOT, DEFAULTS, load_settings, save_settings, config_file,
                        autostart_path, set_autostart, install_launcher)
 from .x11 import X11Paste
+from ..utils import apprules
 
 
 CLIPBOARD_TOKEN_MIME = 'application/x-pastemd-conversion-id'
@@ -45,6 +46,20 @@ class ConversionWorker(QThread):
                 payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
                 self.completed.emit({'clipboard': True, 'token': token, 'rows': rows})
+                return
+            if self.flow in cli.TEXT_FORMAT_LABELS:
+                if self.demo:
+                    source, reader = cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
+                else:
+                    source, reader = cli.read_clipboard(self.input_format)
+                if not source.strip():
+                    raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
+                document = cli.prepare_document(source, reader, self.options)
+                payload = cli.text_clipboard_payload(source, document, reader, self.flow)
+                token = uuid.uuid4().hex.encode('ascii')
+                payload[CLIPBOARD_TOKEN_MIME] = token
+                cli.set_clipboard_payload(payload)
+                self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow})
                 return
             if self.demo:
                 source, reader = cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
@@ -269,6 +284,28 @@ class MainWindow(QMainWindow):
         self.headers_edit.setMaximumHeight(64)
         enhance_form.addRow('请求头', self.headers_edit)
         controls.addLayout(enhance_form)
+        rules_form = QFormLayout()
+        self.workflow_edits = {}
+        for key, label in (('md', '粘贴 Markdown 文本'),
+                           ('latex', '粘贴 LaTeX 文本'),
+                           ('html', '粘贴 HTML 文本')):
+            saved = (self.settings.get('extensible_workflows') or {}).get(key, {})
+            enabled = QCheckBox('启用')
+            enabled.setChecked(bool(saved.get('enabled', True)))
+            edit = QPlainTextEdit()
+            edit.setPlaceholderText('每行一条：显示名 | WM_CLASS | 窗口标题正则')
+            edit.setPlainText(apprules.format_rules(saved.get('apps', [])))
+            edit.setMaximumHeight(56)
+            row = QHBoxLayout()
+            row.addWidget(enabled)
+            row.addWidget(edit, 1)
+            rules_form.addRow(label, row)
+            self.workflow_edits[key] = (enabled, edit)
+        rules_note = QLabel('命中的窗口自动改粘贴文本格式，例如：语雀 | yuque | 语雀。'
+                            'WM_CLASS 用 token 精确匹配；标题正则可留空。')
+        rules_note.setWordWrap(True)
+        rules_form.addRow(rules_note)
+        controls.addLayout(rules_form)
         note = QLabel('自动粘贴仅在原 WPS 窗口仍有焦点、快捷键已经松开时执行。切换到其他应用后，内容会留在剪贴板供手动粘贴。')
         note.setWordWrap(True)
         controls.addWidget(note)
@@ -396,7 +433,11 @@ class MainWindow(QMainWindow):
             'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
                                if line.strip()],
             'pandoc_request_headers': [line.strip() for line in self.headers_edit.toPlainText().splitlines()
-                                       if line.strip()]})
+                                       if line.strip()],
+            'extensible_workflows': {
+                key: {'enabled': enabled.isChecked(),
+                      'apps': apprules.parse_rules(edit.toPlainText())}
+                for key, (enabled, edit) in self.workflow_edits.items()}})
         old = dict(self.settings)
         old_autostart = autostart_path().exists()
         try:
@@ -456,14 +497,24 @@ class MainWindow(QMainWindow):
         self.target = None
         self.flow = 'doc'
         paste_now = paste and self.settings['auto_paste']
-        if paste_now:
-            app = self.focused_app()
-            if app is None:
-                self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
-            else:
-                self.target = app
-                if app[2] == 'spreadsheet' and self.settings.get('enable_excel', True):
-                    self.flow = 'table'
+        app = self.focused_app() if paste_now else None
+        if paste_now and app is None:
+            self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
+        if app:
+            self.target = app
+            kind = app[2]
+            if kind == 'spreadsheet' and self.settings.get('enable_excel', True):
+                self.flow = 'table'
+            elif kind not in ('writer', 'spreadsheet', 'presentation'):
+                # 非 WPS 窗口：按应用扩展规则决定是否改粘贴文本格式
+                workflows = self.settings.get('extensible_workflows') or {}
+                ext = apprules.active_flow(workflows, app[3] if len(app) > 3 else '',
+                                           app[1] if len(app) > 1 else '')
+                if ext:
+                    self.flow = ext
+                else:
+                    self.target = None
+                    self.report('当前窗口没有匹配的粘贴规则，内容将留在剪贴板供手动粘贴。')
         self.want_paste = paste_now and self.target is not None
         self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx,
                                        options=dict(self.settings), flow=self.flow, parent=self)
@@ -505,6 +556,9 @@ class MainWindow(QMainWindow):
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
+        elif 'text_flow' in result:
+            self.report('已按' + cli.text_clipboard_label(result['text_flow'])
+                        + '文本写入剪贴板，在目标应用中按 Ctrl+V。', notify=True)
         elif 'rows' in result:
             self.report(f"表格已就绪（{result['rows']} 行），请在 WPS 表格中按 Ctrl+V。", notify=True)
         else:
@@ -527,6 +581,9 @@ class MainWindow(QMainWindow):
             self.x11.paste(self.target)
             if self.flow == 'table':
                 self.report('已向 WPS 表格发送粘贴。', notify=True)
+            elif self.flow in cli.TEXT_FORMAT_LABELS:
+                self.report('已向目标应用发送' + cli.text_clipboard_label(self.flow)
+                            + '文本粘贴。', notify=True)
             else:
                 lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
                 self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。' + lost_note, notify=True)

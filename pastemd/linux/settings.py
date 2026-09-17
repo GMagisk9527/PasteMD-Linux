@@ -5,6 +5,8 @@ from pathlib import Path
 import sys
 import tempfile
 
+from ..utils.apprules import DEFAULT_WORKFLOWS, WORKFLOW_ORDER
+
 ROOT = Path(__file__).resolve().parents[2]
 FLATPAK_APP_ID = 'io.github.GMagisk9527.PasteMDLinux'
 DEFAULT_UA = ('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
@@ -23,7 +25,11 @@ DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True
             'horizontal_rule_style': 'default',
             'docx_auto_table_layout': False,
             'pandoc_request_headers': [DEFAULT_UA],
-            'pandoc_filters': []}
+            'pandoc_filters': [],
+            # 可扩展工作流（应用扩展规则），结构与上游 extensible_workflows 一致
+            'extensible_workflows': {key: {'enabled': value.get('enabled', True),
+                                           'apps': list(value.get('apps', []))}
+                                     for key, value in DEFAULT_WORKFLOWS.items()}}
 
 
 def _string_list(value):
@@ -63,6 +69,16 @@ def load_settings():
     if result['horizontal_rule_style'] not in ('default', 'paragraph_border'):
         result['horizontal_rule_style'] = 'default'
     result['paste_delay_ms'] = max(100, min(2000, result['paste_delay_ms']))
+    saved_workflows = result.get('extensible_workflows')
+    clean = {}
+    for key in WORKFLOW_ORDER:
+        cfg = saved_workflows.get(key) if isinstance(saved_workflows, dict) else None
+        apps = cfg.get('apps') if isinstance(cfg, dict) else None
+        enabled = cfg.get('enabled', True) if isinstance(cfg, dict) else True
+        clean[key] = {'enabled': bool(enabled),
+                      'apps': [app for app in apps if isinstance(app, dict)]
+                      if isinstance(apps, list) else []}
+    result['extensible_workflows'] = clean
     return result
 
 

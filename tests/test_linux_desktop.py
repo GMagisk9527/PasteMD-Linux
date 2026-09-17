@@ -335,6 +335,67 @@ class DesktopTests(unittest.TestCase):
         window.x11 = None
         self.assertIsNone(window.focused_app())
 
+    def test_rule_match_routes_md_text_flow(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.kwin = Mock()
+        window.kwin.available = True
+        window.kwin.focused_app.return_value = ('kwin:x', '语雀 - Chrome', None, 'chrome')
+        window.settings['extensible_workflows'] = {
+            'md': {'enabled': True, 'apps': [{'name': '语雀', 'class': 'chrome'}]},
+            'latex': {'enabled': True, 'apps': []},
+            'html': {'enabled': True, 'apps': []}}
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'md')
+        self.assertTrue(window.want_paste)
+        self.assertEqual(worker.call_args.kwargs['flow'], 'md')
+
+    def test_non_wps_window_without_rule_keeps_manual_paste(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.kwin = Mock()
+        window.kwin.available = True
+        window.kwin.focused_app.return_value = ('kwin:x', '首页 - Chrome', None, 'chrome')
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'doc')
+        self.assertIsNone(window.target)
+        self.assertFalse(window.want_paste)
+        self.assertIn('没有匹配的粘贴规则', window.log.toPlainText())
+        worker.assert_called_once()
+
+    def test_workflow_rules_survive_settings_round_trip(self):
+        window = self.window()
+        enabled, edit = window.workflow_edits['md']
+        enabled.setChecked(True)
+        edit.setPlainText('语雀 | yuque | 语雀\n腾讯文档 || docs\\.qq\\.com')
+        window.save()
+        loaded = settings.load_settings()
+        self.assertTrue(loaded['extensible_workflows']['md']['enabled'])
+        self.assertEqual(loaded['extensible_workflows']['md']['apps'], [
+            {'name': '语雀', 'class': 'yuque', 'window_patterns': ['语雀']},
+            {'name': '腾讯文档', 'window_patterns': ['docs\\.qq\\.com']}])
+        self.assertEqual(loaded['extensible_workflows']['latex']['apps'], [])
+
+    def test_settings_loader_sanitizes_workflow_rules(self):
+        config = settings.config_file()
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({
+            'extensible_workflows': {
+                'md': {'enabled': 'yes', 'apps': [{'name': 'ok', 'class': 'ok'}, 'bad', 7]},
+                'latex': 'bad',
+                'html': None,
+                'file': {'enabled': True, 'apps': []}}}))
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['extensible_workflows']['md'],
+                         {'enabled': True, 'apps': [{'name': 'ok', 'class': 'ok'}]})
+        self.assertEqual(loaded['extensible_workflows']['latex'],
+                         {'enabled': True, 'apps': []})
+        self.assertNotIn('file', loaded['extensible_workflows'])
+
     def test_converted_reports_ready_table(self):
         window = self.window()
         window.want_paste = False

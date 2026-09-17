@@ -96,6 +96,23 @@ python3 scripts/pastemd-wayland.py --clipboard
 保存的 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
 默认剪贴板模式在内存中生成、传递 DOCX，不保存中间文档。
 
+## 应用扩展规则（按窗口切换粘贴格式）
+
+设置页下方三个文本框分别对应「粘贴 Markdown / LaTeX / HTML 文本」流程。
+每行一条规则，格式为 `显示名 | WM_CLASS | 窗口标题正则`（后两列可留空）：
+
+```text
+语雀 | yuque | 语雀
+腾讯文档 || docs\.qq\.com
+```
+
+热键触发时若前台窗口命中某条规则，剪贴板会改为写入对应格式的纯文本
+（网页来源会先用 Pandoc 转换），随后照常自动粘贴。WM_CLASS 用 token
+精确匹配（`et` 不会误伤 `netease`）；标题正则用 `re.search` 匹配。
+配置键 `extensible_workflows` 与上游同名同构（Linux 分支不含 file 工作流）。
+
+命令行可以单独验证文本链路：`--as md`、`--as latex`、`--as html`。
+
 ## 智能表格粘贴（实验，适配 WPS 表格）
 
 热键触发时若前台是 WPS 表格（WM_CLASS 为 `et`/`ket`），PasteMD 会改走表格流程：
@@ -148,6 +165,7 @@ python3 scripts/pastemd-wayland.py --table
 
 清理网页包装会丢弃其颜色、字号和页面布局。未接入上游所有网页公式恢复、图片与样式修复逻辑。
 `.wps` 格式、复杂公式、图片、版式和不同 WPS 版本仍需验证。剪贴板使用的是观测到的 WPS 原生格式，未来版本可能改变。
+界面暂仅中文；上游的 en/ja 多语言资源尚未移植。
 
 ## 验证
 

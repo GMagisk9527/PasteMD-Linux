@@ -147,7 +147,7 @@ class X11Paste:
                     title = self._window_title(current)
                     kind = self.classify(names, title)
                     if kind:
-                        return current, title, kind
+                        return current, title, kind, names[0]
                 root, parent = C.c_ulong(), C.c_ulong()
                 children, count = C.POINTER(C.c_ulong)(), C.c_uint()
                 if not self.x.XQueryTree(self.display, current, C.byref(root), C.byref(parent), C.byref(children), C.byref(count)):

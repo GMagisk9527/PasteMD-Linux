@@ -206,6 +206,39 @@ def table_clipboard_payload(markdown_text):
     return payload, len(table)
 
 
+TEXT_FORMAT_LABELS = {'md': 'Markdown', 'latex': 'LaTeX', 'html': 'HTML'}
+
+
+def text_clipboard_label(target_format):
+    return TEXT_FORMAT_LABELS.get(target_format, target_format)
+
+
+def text_clipboard_payload(raw, document, reader, target_format):
+    """应用扩展流程：把内容转成 Markdown/LaTeX/HTML 纯文本剪贴板载荷。
+
+    raw 是剪贴板原始字节，document 是 prepare_document 产出的 pandoc JSON AST。
+    """
+    if target_format == 'md':
+        if reader.startswith('markdown'):
+            # 原文直通，仅套用公式分隔符修复，避免 Pandoc 重排用户的 Markdown。
+            text = convert_latex_delimiters(raw.decode('utf-8', 'replace'))
+            return {'text/plain': text.encode('utf-8')}
+        text = run(['pandoc', '--from', 'json', '--to', 'gfm'],
+                   document).decode('utf-8', 'replace')
+        return {'text/plain': text.encode('utf-8')}
+    if target_format == 'latex':
+        text = run(['pandoc', '--from', 'json', '--to', 'latex'],
+                   document).decode('utf-8', 'replace')
+        return {'text/plain': text.encode('utf-8')}
+    if target_format == 'html':
+        if reader.startswith('html'):
+            return {'text/html': raw}
+        text = run(['pandoc', '--from', 'json', '--to', 'html'],
+                   document).decode('utf-8', 'replace')
+        return {'text/html': text.encode('utf-8')}
+    raise RuntimeError(f'未知的目标格式：{target_format}')
+
+
 def open_in_wps(path):
     """Open a generated document in host WPS from source, AppImage or Flatpak."""
     if os.environ.get('FLATPAK_ID'):
@@ -378,11 +411,13 @@ def main(argv=None, options=None):
     output = parser.add_mutually_exclusive_group()
     output.add_argument('--clipboard', action='store_true', help='写入 WPS 原生 DOCX 剪贴板（默认），随后在 WPS 按 Ctrl+V')
     output.add_argument('--table', action='store_true', help='识别剪贴板中的 Markdown 表格，写入 HTML 表格剪贴板（适配 WPS 表格）')
+    output.add_argument('--as', dest='as_format', choices=['md', 'latex', 'html'],
+                        help='应用扩展流程：按 Markdown/LaTeX/HTML 纯文本写入剪贴板')
     output.add_argument('--docx', action='store_true', help='保存 DOCX，而不是替换剪贴板')
     output.add_argument('--open', action='store_true', help='用 WPS 打开生成的 DOCX（隐含 --docx）')
     args = parser.parse_args(argv)
     open_docx = args.open
-    use_clipboard = not (args.docx or args.open or args.table)
+    use_clipboard = not (args.docx or args.open or args.table or args.as_format)
     options = load_conversion_options() if options is None else options
     try:
         if not os.environ.get('WAYLAND_DISPLAY'):
@@ -397,6 +432,22 @@ def main(argv=None, options=None):
             payload, rows = table_clipboard_payload(read_table_source())
             set_clipboard_payload(payload)
             message = f'表格已就绪（{rows} 行），请在 WPS 表格中按 Ctrl+V。'
+            notify(message)
+            print(message)
+            return 0
+        if args.as_format:
+            if args.demo:
+                content = DEMO_MARKDOWN.encode('utf-8')
+                reader = 'markdown' + MATH_EXTENSIONS
+            else:
+                content, reader = read_clipboard(args.input)
+            if not content.strip():
+                raise RuntimeError('剪贴板内容为空。')
+            raw_source = content
+            content = prepare_document(content, reader, options)
+            payload = text_clipboard_payload(raw_source, content, reader, args.as_format)
+            set_clipboard_payload(payload)
+            message = f'已按{text_clipboard_label(args.as_format)}文本写入剪贴板，在目标应用中按 Ctrl+V。'
             notify(message)
             print(message)
             return 0
