@@ -245,20 +245,33 @@ class DesktopTests(unittest.TestCase):
         for names in (['wps'], ['kwps'], ['wpsoffice'], ['com.wps.writer']):
             self.assertTrue(X11Paste.is_wps(names), names)
         self.assertFalse(X11Paste.is_wps(['kwrite']))
+        self.assertFalse(X11Paste.is_wps(['wpscloudsvr', 'qing']))
         self.assertFalse(X11Paste.is_wps([]))
 
     def test_window_classification_routes_wps_suites(self):
         classify = X11Paste.classify
         self.assertEqual(classify(['wps']), 'writer')
         self.assertEqual(classify(['kwps']), 'writer')
-        self.assertEqual(classify(['wpsoffice']), 'writer')
         self.assertEqual(classify(['et', 'wps']), 'spreadsheet')
         self.assertEqual(classify(['ket', 'ket']), 'spreadsheet')
         self.assertEqual(classify(['et.exe', 'Et']), 'spreadsheet')
         self.assertEqual(classify(['wpp', 'wps']), 'presentation')
         self.assertIsNone(classify(['kwrite']))
         self.assertIsNone(classify(['get', 'net']))
+        self.assertIsNone(classify(['wpscloudsvr', 'qing']))
         self.assertIsNone(classify([]))
+
+    def test_title_classification_for_unified_wpsoffice_windows(self):
+        classify = X11Paste.classify
+        self.assertEqual(classify(['wpsoffice'], '测试文档.docx - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '成绩表.csv - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '数据汇总.xlsx - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '答辩.pptx - WPS Office'), 'presentation')
+        self.assertEqual(classify(['wpsoffice'], '新建表格 - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '工作簿1'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '报表.et'), 'spreadsheet')
+        self.assertIsNone(classify(['wpsoffice'], 'WPS Office'))
+        self.assertIsNone(classify(['wpsoffice'], ''))
 
     def test_spreadsheet_focus_routes_to_table_flow(self):
         window = self.window()
@@ -291,6 +304,36 @@ class DesktopTests(unittest.TestCase):
             window.convert(paste=True)
         self.assertEqual(window.flow, 'doc')
         self.assertTrue(window.want_paste)
+
+    def test_kwin_focus_routes_spreadsheet_title(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.kwin = Mock()
+        window.kwin.available = True
+        window.kwin.focused_app.return_value = (
+            'kwin:io.github.GMagisk9527.PasteMDLinux', '成绩表.csv - WPS Office', 'spreadsheet')
+        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+            window.convert(paste=True)
+        self.assertEqual(window.flow, 'table')
+        self.assertEqual(window.target,
+                         ('kwin:io.github.GMagisk9527.PasteMDLinux', '成绩表.csv - WPS Office', 'spreadsheet'))
+        self.assertTrue(window.want_paste)
+        window.x11.focused_app.assert_not_called()
+
+    def test_kwin_unavailable_degrades_to_x11(self):
+        window = self.window()
+        window.smoke = False
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = (10, 'doc', 'writer')
+        window.kwin = Mock()
+        window.kwin.available = True
+        window.kwin.focused_app.return_value = None
+        self.assertEqual(window.focused_app(), (10, 'doc', 'writer'))
+        window.kwin = None
+        self.assertEqual(window.focused_app(), (10, 'doc', 'writer'))
+        window.x11 = None
+        self.assertIsNone(window.focused_app())
 
     def test_converted_reports_ready_table(self):
         window = self.window()

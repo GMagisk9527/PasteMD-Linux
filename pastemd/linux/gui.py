@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, 
 
 from . import cli
 from .hotkey import KdeHotkey
+from .kwin import KWinFocus
 from .settings import (ROOT, DEFAULTS, load_settings, save_settings, config_file,
                        autostart_path, set_autostart, install_launcher)
 from .x11 import X11Paste
@@ -93,6 +94,7 @@ class MainWindow(QMainWindow):
         self.flow = 'doc'
         self.paste_deadline = 0
         self.x11 = None
+        self.kwin = None
         self.hotkey = None
         self.tray = None
         self.closing = False
@@ -334,6 +336,13 @@ class MainWindow(QMainWindow):
         except Exception as error:
             self.report(str(error))
         try:
+            self.kwin = KWinFocus(classify=X11Paste.classify)
+            if self.kwin.available:
+                self.report('焦点检测：KWin（Plasma Wayland）')
+        except Exception as error:
+            self.kwin = None
+            self.report('KWin 焦点查询不可用：' + str(error))
+        try:
             self.hotkey = KdeHotkey(self)
             self.hotkey.activated.connect(lambda: self.convert(paste=True))
             if self.settings['hotkey_enabled']:
@@ -430,6 +439,14 @@ class MainWindow(QMainWindow):
         if notify and self.settings['notifications'] and self.tray:
             self.tray.showMessage('PasteMD Linux', text, QSystemTrayIcon.MessageIcon.Information, 4000)
 
+    def focused_app(self):
+        """Plasma Wayland 下 X 焦点只见代理窗口，优先问 KWin，再退回 X11。"""
+        if self.kwin is not None and self.kwin.available:
+            app = self.kwin.focused_app()
+            if app:
+                return app
+        return self.x11.focused_app() if self.x11 else None
+
     def convert(self, paste=False, demo=False, open_docx=False):
         if self.pending_quit or self.closing:
             return
@@ -439,8 +456,8 @@ class MainWindow(QMainWindow):
         self.target = None
         self.flow = 'doc'
         paste_now = paste and self.settings['auto_paste']
-        if paste_now and self.x11:
-            app = self.x11.focused_app()
+        if paste_now:
+            app = self.focused_app()
             if app is None:
                 self.report('未找到获得焦点的 WPS 窗口，内容将留在剪贴板供手动粘贴。')
             else:
@@ -497,7 +514,7 @@ class MainWindow(QMainWindow):
         if time.monotonic() < self.paste_ready_at:
             return
         try:
-            if self.x11.focused_app() != self.target:
+            if self.focused_app() != self.target:
                 raise RuntimeError('焦点已变化，内容已就绪，请在 WPS 中手动 Ctrl+V。')
             if self.x11.modifiers_held():
                 if time.monotonic() < self.paste_deadline:
@@ -569,6 +586,11 @@ class MainWindow(QMainWindow):
                 pass
         if self.x11:
             self.x11.close()
+        if self.kwin:
+            try:
+                self.kwin.close()
+            except Exception:
+                self.kwin = None
         if self.tray:
             self.tray.hide()
         QApplication.instance().quit()

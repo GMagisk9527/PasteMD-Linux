@@ -2,10 +2,16 @@
 import ctypes as C
 import ctypes.util
 from contextlib import contextmanager
+import re
 
 
 class ClassHint(C.Structure):
     _fields_ = [('res_name', C.c_void_p), ('res_class', C.c_void_p)]
+
+
+class TextProperty(C.Structure):
+    _fields_ = [('value', C.c_void_p), ('encoding', C.c_ulong),
+                ('format', C.c_int), ('nitems', C.c_ulong)]
 
 
 class X11Paste:
@@ -21,6 +27,9 @@ class X11Paste:
         self.x.XGetClassHint.argtypes = [ptr, window, C.POINTER(ClassHint)]
         self.x.XQueryTree.argtypes = [ptr, window, C.POINTER(window), C.POINTER(window), C.POINTER(C.POINTER(window)), C.POINTER(C.c_uint)]
         self.x.XFetchName.argtypes = [ptr, window, C.POINTER(ptr)]
+        self.x.XInternAtom.argtypes = [ptr, C.c_char_p, C.c_int]
+        self.x.XInternAtom.restype = window
+        self.x.XGetTextProperty.argtypes = [ptr, window, C.POINTER(TextProperty), window]
         self.x.XFree.argtypes = [ptr]
         self.x.XKeysymToKeycode.argtypes = [ptr, C.c_ulong]
         self.x.XKeysymToKeycode.restype = C.c_ubyte
@@ -46,26 +55,77 @@ class X11Paste:
 
     @staticmethod
     def is_wps(names):
-        """Match WM_CLASS variants loosely: wps, kwps, wpsoffice, com.wps.*."""
-        return any('wps' in name for name in names)
+        """Token-exact WM_CLASS match: wps, kwps, wpsoffice, com.wps.*.
+
+        Substring matching would also catch helper windows such as the
+        wpscloudsvr daemon observed on real installs.
+        """
+        def tokens(name):
+            return {name, *filter(None, re.split(r'[^a-z0-9]+', name))}
+        return any(tokens(name) & {'wps', 'kwps', 'wpsoffice'} for name in names)
+
+    TITLE_SPREADSHEET = re.compile(r'\.(xls\w*|csv|et)(?![a-z0-9])')
+    TITLE_WRITER = re.compile(r'\.(docx?|wps|rtf)(?![a-z0-9])')
+    TITLE_PRESENTATION = re.compile(r'\.(ppt\w*|dps|ppsx)(?![a-z0-9])')
 
     @staticmethod
-    def classify(names):
+    def classify_title(title):
+        """Suite kind from the window title; modern WPS is one wpsoffice
+        window with tabs, so only the title tells 文字/表格/演示 apart."""
+        text = title.decode('utf-8', 'replace') if isinstance(title, bytes) else title
+        text = text.lower()
+        if (X11Paste.TITLE_SPREADSHEET.search(text) or 'wps表格' in text
+                or '新建表格' in text or '工作簿' in text):
+            return 'spreadsheet'
+        if (X11Paste.TITLE_PRESENTATION.search(text) or 'wps演示' in text
+                or '新建演示' in text):
+            return 'presentation'
+        if (X11Paste.TITLE_WRITER.search(text) or 'wps文字' in text
+                or '新建文档' in text or '新建文字' in text):
+            return 'writer'
+        return None
+
+    @staticmethod
+    def classify(names, title=''):
         """Classify a WPS window: writer, spreadsheet, presentation or None.
 
         Names are tried in order so res_name wins over res_class; 'et' uses
         exact tokens to avoid matching unrelated apps (net, get, terminal…).
+        Modern unified builds expose every suite as 'wpsoffice', where the
+        active tab's window title is the only discriminator.
         """
-        import re
+        def tokens(name):
+            return {name, *filter(None, re.split(r'[^a-z0-9]+', name))}
         for name in names:
-            if 'wps' in name:
-                return 'writer'
-            tokens = {name, *filter(None, re.split(r'[^a-z0-9]+', name))}
-            if tokens & {'et', 'ket'}:
+            if tokens(name) & {'et', 'ket'}:
                 return 'spreadsheet'
-            if tokens & {'wpp', 'kwpp'}:
+            if tokens(name) & {'wpp', 'kwpp'}:
                 return 'presentation'
+            if tokens(name) & {'wps', 'kwps'}:
+                return 'writer'
+        if any(tokens(name) & {'wpsoffice'} for name in names):
+            return X11Paste.classify_title(title)
         return None
+
+    def _window_title(self, window_id):
+        """UTF-8 title via _NET_WM_NAME, falling back to legacy WM_NAME."""
+        with self._errors():
+            for atom_name in ('_NET_WM_NAME', 'WM_NAME'):
+                atom = self.x.XInternAtom(self.display, atom_name.encode(), False)
+                if not atom:
+                    continue
+                prop = TextProperty()
+                if self.x.XGetTextProperty(self.display, window_id, C.byref(prop), atom) \
+                        and prop.value and prop.nitems:
+                    raw = C.string_at(prop.value, prop.nitems * (prop.format // 8))
+                    self.x.XFree(prop.value)
+                    return raw.decode('utf-8', 'replace').rstrip('\x00')
+            title_ptr = C.c_void_p()
+            if self.x.XFetchName(self.display, window_id, C.byref(title_ptr)) and title_ptr.value:
+                title = C.string_at(title_ptr.value)
+                self.x.XFree(title_ptr)
+                return title.decode('utf-8', 'replace')
+        return ''
 
     def focused_app(self):
         """(window, title, kind) of the focused WPS-suite window, else None."""
@@ -83,14 +143,11 @@ class X11Paste:
                         if value:
                             names.append(C.string_at(value).decode('utf-8', 'replace').lower())
                             self.x.XFree(value)
-                kind = self.classify(names)
-                if kind:
-                    title_ptr = C.c_void_p()
-                    title = b''
-                    if self.x.XFetchName(self.display, current, C.byref(title_ptr)) and title_ptr.value:
-                        title = C.string_at(title_ptr.value)
-                        self.x.XFree(title_ptr)
-                    return current, title, kind
+                if names:
+                    title = self._window_title(current)
+                    kind = self.classify(names, title)
+                    if kind:
+                        return current, title, kind
                 root, parent = C.c_ulong(), C.c_ulong()
                 children, count = C.POINTER(C.c_ulong)(), C.c_uint()
                 if not self.x.XQueryTree(self.display, current, C.byref(root), C.byref(parent), C.byref(children), C.byref(count)):
@@ -119,7 +176,11 @@ class X11Paste:
         return False
 
     def paste(self, target):
-        if not target or self.focused_app() != target:
+        # KWin 目标（非 X 窗口 id）的稳定性已由调用方核对过；XWayland 的 X 焦点
+        # 永远是代理窗口，这里只对真正的 X11 目标做身份复核。
+        if not target:
+            raise RuntimeError('WPS 窗口或文档焦点已变化，内容已准备好，请手动 Ctrl+V。')
+        if isinstance(target[0], int) and self.focused_app() != target:
             raise RuntimeError('WPS 窗口或文档焦点已变化，内容已准备好，请手动 Ctrl+V。')
         if self.modifiers_held():
             raise RuntimeError('快捷键尚未松开，内容已准备好，请手动 Ctrl+V。')
