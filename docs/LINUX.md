@@ -140,6 +140,11 @@ python3 scripts/pastemd-wayland.py --table
 - 实际检查 WPS 原生复制样本发现，其 `Kingsoft WPS 9.0 Format` 内容为 DOCX ZIP。PySide6 通过 XWayland 向这个格式写入完整 DOCX，同时提供纯文本。
 - 不提供 HTML 或 RTF 图片回退，避免 WPS 优先选择它们而丢失公式编辑能力。
 - 远程图片由 Pandoc 在转换时抓取并嵌入 DOCX；无网络或图片失效时会被替换为文字说明，完成提示会注明丢失数量。Flatpak 沙箱需要 `--share=network` 权限（清单已包含）。
+- 焦点检测在 Plasma Wayland 下走 KWin 脚本接口（XWayland 的 X 焦点只见 1×1 代理窗口）：
+  查询激活窗口的标题和 WM_CLASS 来识别 WPS 文字/表格/演示，Flatpak 清单需要
+  `--talk-name=org.kde.KWin` 与 `--own-name=io.github.GMagisk9527.PasteMDLinux`（已包含）。
+  非 KDE 会话自动退回 X11 焦点查询。新版 WPS 各套件窗口类统一为 `wpsoffice`，
+  依赖 `_NET_WM_NAME` 标题中的扩展名（`.docx`/`.et` 等）区分套件。
 
 清理网页包装会丢弃其颜色、字号和页面布局。未接入上游所有网页公式恢复、图片与样式修复逻辑。
 `.wps` 格式、复杂公式、图片、版式和不同 WPS 版本仍需验证。剪贴板使用的是观测到的 WPS 原生格式，未来版本可能改变。

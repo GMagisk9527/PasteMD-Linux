@@ -13,6 +13,8 @@
     "--socket=x11",
     "--socket=wayland",
     "--talk-name=org.kde.kglobalaccel",
+    "--talk-name=org.kde.KWin",
+    "--own-name=io.github.GMagisk9527.PasteMDLinux",
     "--talk-name=org.freedesktop.Flatpak",
     "--filesystem=xdg-config/autostart:create"
   ],
