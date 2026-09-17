@@ -1,0 +1,77 @@
+{
+ "pandoc-api-version": [
+  1,
+  23,
+  1,
+  1
+ ],
+ "meta": {},
+ "blocks": [
+  {
+   "t": "BulletList",
+   "c": [
+    [
+     {
+      "t": "Plain",
+      "c": [
+       {
+        "t": "Str",
+        "c": "{{PASTEMD_TASK_CHECKED}}"
+       },
+       {
+        "t": "Space"
+       },
+       {
+        "t": "Str",
+        "c": "已完成项"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "t": "Plain",
+      "c": [
+       {
+        "t": "Str",
+        "c": "{{PASTEMD_TASK_UNCHECKED}}"
+       },
+       {
+        "t": "Space"
+       },
+       {
+        "t": "Str",
+        "c": "待办项"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "t": "Plain",
+      "c": [
+       {
+        "t": "Str",
+        "c": "普通项"
+       },
+       {
+        "t": "Space"
+       },
+       {
+        "t": "Str",
+        "c": "{{PASTEMD_TASK_CHECKED}}"
+       },
+       {
+        "t": "Space"
+       },
+       {
+        "t": "Str",
+        "c": "行内标记"
+       }
+      ]
+     }
+    ]
+   ]
+  }
+ ]
+}

@@ -470,6 +470,31 @@ class WaylandTests(unittest.TestCase):
         for name, resource_class in apprules.APP_PRESETS:
             self.assertTrue(name and resource_class)
 
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_lua_golden_fixtures(self):
+        """黄金测试：锁住 Lua 过滤器 + 转换链的行为，防 pandoc/过滤器回归。
+
+        期望输出由 tests/update_fixtures.py 生成；有意变更行为后重新生成，
+        并用 git diff 审查变化。注意需用与 vendored 一致的 pandoc 3.7 运行。
+        """
+        fixtures = Path(__file__).parent / 'fixtures'
+        cases = [
+            ('ai_answer', ''),
+            ('obsidian_math', ''),
+            ('prewrap', ''),
+            ('task_lists', '.default'),
+            ('task_lists', '.protect'),
+        ]
+        for name, suffix in cases:
+            with self.subTest(fixture=name + suffix):
+                html = (fixtures / f'{name}.html').read_bytes()
+                kwargs = {'protect_task_lists': True} if suffix == '.protect' else {}
+                actual = json.loads(cli.prepare_document(
+                    html, 'html' + cli.MATH_EXTENSIONS, {}, **kwargs))
+                expected = json.loads(
+                    (fixtures / f'{name}{suffix}.json').read_text(encoding='utf-8'))
+                self.assertEqual(actual, expected)
+
     def test_prefer_plain_over_html_detection(self):
         plain = '# 标题\n\n- 列表一\n- 列表二\n\n```code```\n**加粗**'
         wrapped_html = '<span style="color:#333"># 标题</span><br><span>- 列表一</span>'

@@ -2,7 +2,13 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="linux-v0.4.0"
+# 版本单一来源：pastemd/__init__.py 的 __version__（去掉 -linux 后缀）
+release_version="$(sed -n 's/^__version__ = "\(.*\)-linux"$/\1/p' "$root/pastemd/__init__.py")"
+if [[ -z "$release_version" ]]; then
+  echo "无法从 pastemd/__init__.py 读取版本号" >&2
+  exit 1
+fi
+version="linux-v$release_version"
 appdir="$root/build/appimage/PasteMD-Linux.AppDir"
 pyinstaller="$root/.build-venv/bin/pyinstaller"
 meson="$root/.build-venv/bin/meson"

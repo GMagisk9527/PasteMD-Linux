@@ -10,7 +10,7 @@ import time
 import uuid
 
 from PySide6.QtCore import (QEvent, QLockFile, QTimer, Qt, QThread, Signal, QUrl)
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
+from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -21,8 +21,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
 from . import cli
 from .hotkey import KdeHotkey
 from .kwin import KWinFocus
-from .settings import (ROOT, DEFAULTS, load_settings, save_settings, config_file,
-                       autostart_path, set_autostart, install_launcher)
+from .settings import (ROOT, DEFAULTS, load_settings, save_settings, autostart_path, set_autostart, install_launcher)
 from .x11 import X11Paste
 from ..utils import apprules
 

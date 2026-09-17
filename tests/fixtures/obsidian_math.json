@@ -1,0 +1,104 @@
+{
+ "pandoc-api-version": [
+  1,
+  23,
+  1,
+  1
+ ],
+ "meta": {},
+ "blocks": [
+  {
+   "t": "Para",
+   "c": [
+    {
+     "t": "Str",
+     "c": "前言"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Math",
+     "c": [
+      {
+       "t": "InlineMath"
+      },
+      "x^2+y^2"
+     ]
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "与"
+    },
+    {
+     "t": "SoftBreak"
+    },
+    {
+     "t": "Math",
+     "c": [
+      {
+       "t": "InlineMath"
+      },
+      "a_1+a_2"
+     ]
+    },
+    {
+     "t": "Str",
+     "c": "，块级"
+    },
+    {
+     "t": "SoftBreak"
+    },
+    {
+     "t": "Math",
+     "c": [
+      {
+       "t": "DisplayMath"
+      },
+      "E=mc^2"
+     ]
+    },
+    {
+     "t": "SoftBreak"
+    },
+    {
+     "t": "Str",
+     "c": "以及美元定界"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Math",
+     "c": [
+      {
+       "t": "InlineMath"
+      },
+      "e^{i\\pi}+1=0"
+     ]
+    },
+    {
+     "t": "Str",
+     "c": "。"
+    }
+   ]
+  },
+  {
+   "t": "Plain",
+   "c": [
+    {
+     "t": "Math",
+     "c": [
+      {
+       "t": "DisplayMath"
+      },
+      "\\int_a^b f(x)\\,dx"
+     ]
+    }
+   ]
+  }
+ ]
+}

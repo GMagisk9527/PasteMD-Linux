@@ -300,7 +300,7 @@ class DesktopTests(unittest.TestCase):
         window.smoke = False
         window.x11 = Mock()
         window.x11.focused_app.return_value = (11, '文档', 'writer')
-        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+        with patch('pastemd.linux.gui.ConversionWorker'):
             window.convert(paste=True)
         self.assertEqual(window.flow, 'doc')
         self.assertTrue(window.want_paste)
@@ -313,7 +313,7 @@ class DesktopTests(unittest.TestCase):
         window.kwin.available = True
         window.kwin.focused_app.return_value = (
             'kwin:io.github.GMagisk9527.PasteMDLinux', '成绩表.csv - WPS Office', 'spreadsheet')
-        with patch('pastemd.linux.gui.ConversionWorker') as worker:
+        with patch('pastemd.linux.gui.ConversionWorker'):
             window.convert(paste=True)
         self.assertEqual(window.flow, 'table')
         self.assertEqual(window.target,

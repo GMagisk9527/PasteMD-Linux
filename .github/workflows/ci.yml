@@ -10,15 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
       - name: 安装系统依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pandoc wl-clipboard libgl1 libegl1 libxkbcommon0
+          sudo apt-get install -y --no-install-recommends \
+            wl-clipboard libgl1 libegl1 libxkbcommon0 shellcheck
+      # 黄金测试锁的是 pandoc 3.7 的 AST 行为，必须与 vendored 版本一致
+      - name: 固定 pandoc 3.7.0.2
+        run: |
+          curl -fsSL \
+            https://github.com/jgm/pandoc/releases/download/3.7.0.2/pandoc-3.7.0.2-linux-amd64.tar.gz \
+            -o /tmp/pandoc.tar.gz
+          tar -xzf /tmp/pandoc.tar.gz -C /tmp
+          echo "/tmp/pandoc-3.7.0.2/bin" >> "$GITHUB_PATH"
       - name: 安装 Python 依赖
-        run: pip install PySide6
+        run: uv pip install --system PySide6
+      - name: 静态检查（ruff + shellcheck）
+        run: |
+          uv tool run ruff@0.16.8 check pastemd/ scripts/ tests/ --select E4,E7,E9,F
+          shellcheck -S warning packaging/appimage/build.sh packaging/flatpak/build.sh scripts/smoke/smoke_md_rule_flow.sh
       - name: 运行测试
         env:
           QT_QPA_PLATFORM: offscreen
