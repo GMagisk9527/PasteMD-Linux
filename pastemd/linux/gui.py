@@ -12,9 +12,11 @@ import uuid
 from PySide6.QtCore import (QEvent, QLockFile, QTimer, Qt, QThread, Signal, QUrl)
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QKeySequenceEdit, QMainWindow, QMessageBox, QPlainTextEdit,
-    QPushButton, QSpinBox, QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget, QMenu)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QKeySequenceEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+    QPlainTextEdit, QPushButton, QSpinBox, QSystemTrayIcon, QTabWidget,
+    QVBoxLayout, QWidget, QMenu)
 
 from . import cli
 from .hotkey import KdeHotkey
@@ -269,6 +271,9 @@ class MainWindow(QMainWindow):
         self.bold_header = QCheckBox('表格首行全加粗时提升为表头（实验）')
         self.bold_header.setChecked(formatting.get('bold_first_row_to_header', False))
         enhance_form.addRow(self.bold_header)
+        self.prewrap_newlines = QCheckBox('保留 pre-wrap 块的换行（聊天记录、代码块复制）')
+        self.prewrap_newlines.setChecked(formatting.get('preserve_prewrap_newlines', True))
+        enhance_form.addRow(self.prewrap_newlines)
         reference_row = QHBoxLayout()
         self.reference_edit = QLineEdit(str(self.settings['reference_docx'] or ''))
         self.reference_edit.setPlaceholderText('Pandoc 参考文档模板（.docx），留空使用默认样式')
@@ -307,6 +312,9 @@ class MainWindow(QMainWindow):
             edit.setMaximumHeight(56)
             row = QHBoxLayout()
             row.addWidget(enabled)
+            pick = QPushButton('从窗口拾取…')
+            pick.clicked.connect(lambda _=False, flow_key=key: self._pick_window_rule(flow_key))
+            row.addWidget(pick)
             row.addWidget(edit, 1)
             rules_form.addRow(label, row)
             self.workflow_edits[key] = (enabled, edit)
@@ -439,7 +447,8 @@ class MainWindow(QMainWindow):
             'horizontal_rule_style': self.rule_style.currentData(),
             'docx_auto_table_layout': self.auto_tables.isChecked(),
             'html_formatting': {'css_font_to_semantic': self.font_semantic.isChecked(),
-                                'bold_first_row_to_header': self.bold_header.isChecked()},
+                                'bold_first_row_to_header': self.bold_header.isChecked(),
+                                'preserve_prewrap_newlines': self.prewrap_newlines.isChecked()},
             'reference_docx': self.reference_edit.text().strip() or None,
             'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
                                if line.strip()],
@@ -608,6 +617,69 @@ class MainWindow(QMainWindow):
         self.paste_timer.stop()
         self.paste_pending = False
         self._set_busy(False)
+
+    def _pick_window_rule(self, workflow_key):
+        """列出运行中的窗口/常用预设，生成 `显示名 | class |` 规则行。"""
+        candidates = []
+        if self.kwin and self.kwin.available:
+            try:
+                candidates = self.kwin.list_windows()
+            except Exception:
+                candidates = []
+        if not candidates and self.x11:
+            candidates = self.x11.list_windows()
+        seen, windows = set(), []
+        for caption, resource_class in candidates:
+            if (caption, resource_class) in seen:
+                continue
+            seen.add((caption, resource_class))
+            windows.append((str(caption), str(resource_class)))
+        dialog = QDialog(self)
+        dialog.setWindowTitle('从运行中的窗口拾取规则')
+        layout = QVBoxLayout(dialog)
+        if windows:
+            hint = QLabel('双击窗口行生成规则（默认按 class 匹配该应用的所有窗口）：')
+            layout.addWidget(hint)
+        else:
+            layout.addWidget(QLabel('没有枚举到可用的窗口（需要 KDE Wayland 或 X11 会话）。'))
+        window_list = QListWidget(dialog)
+        for caption, resource_class in windows:
+            item = QListWidgetItem(f'{caption}    [{resource_class}]')
+            item.setData(Qt.UserRole, (caption, resource_class))
+            window_list.addItem(item)
+        layout.addWidget(window_list)
+        layout.addWidget(QLabel('或添加常用应用预设（class 不确定时可拾取核对）：'))
+        preset_row = QHBoxLayout()
+        for name, resource_class in apprules.APP_PRESETS:
+            button = QPushButton(name)
+            button.clicked.connect(lambda _=False, picked=(name, resource_class):
+                                   self._apply_window_pick(dialog, picked, workflow_key))
+            preset_row.addWidget(button)
+        layout.addLayout(preset_row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        def on_double_clicked(item):
+            picked = item.data(Qt.UserRole)
+            if picked:
+                self._apply_window_pick(dialog, picked, workflow_key)
+        window_list.itemDoubleClicked.connect(on_double_clicked)
+        dialog.exec()
+
+    def _apply_window_pick(self, dialog, picked, workflow_key):
+        """把拾取结果写进对应流程的规则编辑框。"""
+        name, resource_class = picked
+        name = str(name).replace('|', '/').strip() or resource_class
+        resource_class = str(resource_class).replace('|', '/').strip()
+        if not resource_class:
+            return
+        dialog.chosen = (name, resource_class)
+        dialog.accept()
+        edit = self.workflow_edits[workflow_key][1]
+        line = f'{name} | {resource_class} | '
+        current = edit.toPlainText().rstrip('\n')
+        edit.setPlainText((current + '\n' if current else '') + line)
 
     def _pick_reference(self):
         path, _ = QFileDialog.getOpenFileName(self, '选择参考文档模板', str(Path.home()),

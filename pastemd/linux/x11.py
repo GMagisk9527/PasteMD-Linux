@@ -25,6 +25,8 @@ class X11Paste:
         self.x.XCloseDisplay.argtypes = [ptr]
         self.x.XGetInputFocus.argtypes = [ptr, C.POINTER(window), C.POINTER(C.c_int)]
         self.x.XGetClassHint.argtypes = [ptr, window, C.POINTER(ClassHint)]
+        self.x.XDefaultRootWindow.argtypes = [ptr]
+        self.x.XDefaultRootWindow.restype = window
         self.x.XQueryTree.argtypes = [ptr, window, C.POINTER(window), C.POINTER(window), C.POINTER(C.POINTER(window)), C.POINTER(C.c_uint)]
         self.x.XFetchName.argtypes = [ptr, window, C.POINTER(ptr)]
         self.x.XInternAtom.argtypes = [ptr, C.c_char_p, C.c_int]
@@ -126,6 +128,44 @@ class X11Paste:
                 self.x.XFree(title_ptr)
                 return title.decode('utf-8', 'replace')
         return ''
+
+    def list_windows(self):
+        """[(title, resource_class)] X11 客户端窗口列表（规则拾取器降级用）。"""
+        results = []
+        with self._errors():
+            self._collect_windows(self.x.XDefaultRootWindow(self.display), results, 0)
+        seen = set()
+        unique = []
+        for title, resource_class in results:
+            if (title, resource_class) not in seen:
+                seen.add((title, resource_class))
+                unique.append((title, resource_class))
+        return unique
+
+    def _collect_windows(self, window, results, depth):
+        if depth > 6:
+            return
+        root, parent = C.c_ulong(), C.c_ulong()
+        children, count = C.POINTER(C.c_ulong)(), C.c_uint()
+        if not self.x.XQueryTree(self.display, window, C.byref(root), C.byref(parent),
+                                 C.byref(children), C.byref(count)):
+            return
+        try:
+            for index in range(count.value):
+                child = children[index]
+                hint = ClassHint()
+                if self.x.XGetClassHint(self.display, child, C.byref(hint)):
+                    names = []
+                    for value in (hint.res_name, hint.res_class):
+                        if value:
+                            names.append(C.string_at(value).decode('utf-8', 'replace'))
+                            self.x.XFree(value)
+                    if names:
+                        results.append((self._window_title(child), names[0].lower()))
+                self._collect_windows(child, results, depth + 1)
+        finally:
+            if children:
+                self.x.XFree(children)
 
     def focused_app(self):
         """(window, title, kind) of the focused WPS-suite window, else None."""

@@ -1,5 +1,32 @@
 # 更新日志
 
+## 0.4.0-linux（2026-09-17）
+
+### 新增
+
+- **应用规则拾取器**：设置页每个流程新增「从窗口拾取…」，列出当前运行的
+  窗口（KDE Wayland 走 KWin 枚举，X11 会话走 XQueryTree 降级），双击即
+  生成 `显示名 | class |` 规则行，不再需要手动查 WM_CLASS；另附常用应用
+  预设（语雀/Notion/Typora/Obsidian/飞书）
+- **pre-wrap 换行还原**：`white-space:pre-wrap` 块（聊天记录、代码展示区）
+  的源码换行从"渲染成空格"还原为硬换行——docx 落 `w:br`、Markdown 落
+  gfm 硬换行；class 型 pre-wrap 经样式表解析识别；设置页可关闭
+- **Obsidian 公式恢复**：`span.math`/`div.math`（math-inline/math-block）
+  包裹的 LaTeX 文本还原为原生公式节点，兼容单/双反斜杠与 `$…$` 定界符
+
+### 修复
+
+- KWin 服务名回退规则：DBus 名字组件不允许以数字开头，修复 GUI 与 CLI
+  并存时第二实例 KWin 焦点检测完全失效的存量问题
+
+### 说明
+
+- 调查过用 wl-copy 从 Wayland 原生端写剪贴板以消除 XWayland 桥的
+  latin-1 `text/plain` 合成变体（中文显示 `?` 的来源）：实测本机 KWin
+  不向 X11 客户端代发 Wayland 端写入（连 Klipper 自身写入 X11 也读不
+  到），而 WPS/语雀/Chrome 均为 X11 客户端，故保留 X11 服务进程方案；
+  数据本体无损（`text/plain;charset=utf-8` 变体正确）。
+
 ## 0.3.1-linux（2026-09-17）
 
 ### 修复

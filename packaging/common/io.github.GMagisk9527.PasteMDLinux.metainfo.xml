@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.0" date="2026-09-17">
+      <description>
+        <p>应用规则拾取器（从运行中的窗口一键生成规则+常用预设）、pre-wrap 换行还原、Obsidian 公式恢复；修复多实例下 KWin 焦点检测失效。</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-09-17">
       <description>
         <p>文本粘贴质量修复：Markdown 输出不再混入裸 HTML、公式还原为 $…$、不再硬折行，任务列表 [x]/[ ] 不再被转义，热键增加防抖。</p>

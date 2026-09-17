@@ -90,6 +90,7 @@ def load_conversion_options():
 CSS_CLASS_RE = re.compile(r'\.([A-Za-z_][\w-]*)\s*\{([^}]*)\}')
 FONT_WEIGHT_RE = re.compile(r'font-weight\s*:\s*([^;}]+)')
 FONT_STYLE_RE = re.compile(r'font-style\s*:\s*([^;}]+)')
+WHITE_SPACE_RE = re.compile(r'white-space\s*:\s*([^;}]+)')
 STRUCTURAL_TAG_RE = re.compile(
     r'<(p|h[1-6]|ul|ol|table|pre|blockquote|code)[\s>]', re.IGNORECASE)
 
@@ -101,8 +102,8 @@ MARKDOWN_HINTS = (
 
 
 def extract_font_classes(html_text):
-    """从 <style> 块提取加粗/斜体 class 名单（pandoc 不读样式表）。"""
-    bold, italic = [], []
+    """从 <style> 块提取加粗/斜体/pre-wrap class 名单（pandoc 不读样式表）。"""
+    bold, italic, prewrap = [], [], []
     for match in CSS_CLASS_RE.finditer(html_text):
         body = match.group(2).lower()
         weight = FONT_WEIGHT_RE.search(body)
@@ -114,7 +115,10 @@ def extract_font_classes(html_text):
         style = FONT_STYLE_RE.search(body)
         if style and ('italic' in style.group(1) or 'oblique' in style.group(1)):
             italic.append(match.group(1))
-    return bold, italic
+        space = WHITE_SPACE_RE.search(body)
+        if space and 'pre-wrap' in space.group(1):
+            prewrap.append(match.group(1))
+    return bold, italic, prewrap
 
 
 def markdown_hint_score(text):
@@ -193,7 +197,8 @@ def prepare_document(content, reader, options=None, protect_task_lists=False):
             reader += '+hard_line_breaks'
     else:
         html_text = content.decode('utf-8', 'replace')
-        bold_classes, italic_classes = extract_font_classes(html_text)
+        bold_classes, italic_classes, prewrap_classes = \
+            extract_font_classes(html_text)
         formatting = options.get('html_formatting') or {}
         env = dict(os.environ)
         if bold_classes and formatting.get('css_font_to_semantic', True):
@@ -202,6 +207,11 @@ def prepare_document(content, reader, options=None, protect_task_lists=False):
             env['PASTEMD_FONT_ITALIC_CLASSES'] = ','.join(italic_classes)
         if formatting.get('bold_first_row_to_header'):
             env['PASTEMD_PROMOTE_BOLD_HEADER'] = 'true'
+        # pre-wrap 块的源码换行还原为硬换行（聊天/代码 UI 复制场景）
+        if formatting.get('preserve_prewrap_newlines', True):
+            env['PASTEMD_PRESERVE_PREWRAP'] = '1'
+            if prewrap_classes:
+                env['PASTEMD_PREWRAP_CLASSES'] = ','.join(prewrap_classes)
         # 任务列表 [x]/[ ] 占位保护：仅用于转 Markdown 文本的目标，避免
         # gfm writer 把方括号转义成 \[x]；docx 流程保持原样
         if protect_task_lists:

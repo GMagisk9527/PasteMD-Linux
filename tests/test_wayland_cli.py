@@ -432,10 +432,43 @@ class WaylandTests(unittest.TestCase):
 
     def test_extract_font_classes_from_style_blocks(self):
         html = ('<style>.b{font-weight:bold}.w{font-weight:600}.i{font-style:italic}'
-                '.n{font-weight:normal}.u{color:red}</style>')
-        bold, italic = cli.extract_font_classes(html)
+                '.n{font-weight:normal}.u{color:red}.chat{white-space:pre-wrap}</style>')
+        bold, italic, prewrap = cli.extract_font_classes(html)
         self.assertEqual(bold, ['b', 'w'])
         self.assertEqual(italic, ['i'])
+        self.assertEqual(prewrap, ['chat'])
+
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_prewrap_newlines_restored(self):
+        html = (b'<style>.chat{white-space:pre-wrap}</style>'
+                b'<div class="chat">line one\nline two</div>'
+                b'<div style="white-space:pre-wrap">l1\nl2</div>')
+        ast = json.loads(cli.prepare_document(html, 'html', {}))
+        self.assertEqual(json.dumps(ast).count('LineBreak'), 2)
+        self.assertNotIn('SoftBreak', json.dumps(ast))
+        # 开关关闭时保持原 SoftBreak 行为
+        ast_off = json.loads(cli.prepare_document(
+            html, 'html', {'html_formatting': {'preserve_prewrap_newlines': False}}))
+        self.assertEqual(json.dumps(ast_off).count('SoftBreak'), 2)
+
+    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    def test_obsidian_math_spans_restored(self):
+        html = (b'<p><span class="math math-inline">\\(x^2+y^2\\)</span> ok '
+                b'<span class="math math-block">\\[E=mc^2\\]</span></p>')
+        ast = json.loads(cli.prepare_document(html, 'html', {}))
+        blob = json.dumps(ast)
+        self.assertIn('InlineMath', blob)
+        self.assertIn('x^2+y^2', blob)
+        self.assertIn('DisplayMath', blob)
+        self.assertIn('E=mc^2', blob)
+        # 正文里的普通 span 不受影响
+        self.assertIn('ok', blob)
+
+    def test_app_presets_defined(self):
+        from pastemd.utils import apprules
+        self.assertIn(('语雀', 'yuque'), apprules.APP_PRESETS)
+        for name, resource_class in apprules.APP_PRESETS:
+            self.assertTrue(name and resource_class)
 
     def test_prefer_plain_over_html_detection(self):
         plain = '# 标题\n\n- 列表一\n- 列表二\n\n```code```\n**加粗**'

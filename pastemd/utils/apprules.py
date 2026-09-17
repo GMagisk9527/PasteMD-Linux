@@ -59,6 +59,12 @@ def match_app(app, resource_class, caption):
     return False
 
 
+# 常见 Markdown 编辑器预设（Electron 应用 class 通常取可执行名；
+# 不确定时在拾取对话框里核对实际窗口的 class）
+APP_PRESETS = (('语雀', 'yuque'), ('Notion', 'notion'), ('Typora', 'typora'),
+               ('Obsidian', 'obsidian'), ('飞书', 'bytedance-feishu'))
+
+
 def active_flow(workflows, resource_class, caption):
     """返回命中的可扩展流程名（html/md/latex），无命中返回 None。"""
     if not isinstance(workflows, dict):

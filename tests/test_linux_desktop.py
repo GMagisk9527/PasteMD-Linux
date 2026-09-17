@@ -420,12 +420,14 @@ class DesktopTests(unittest.TestCase):
     def test_settings_html_formatting_roundtrip_and_sanitize(self):
         values = dict(settings.DEFAULTS)
         values['html_formatting'] = {'css_font_to_semantic': False,
-                                     'bold_first_row_to_header': True}
+                                     'bold_first_row_to_header': True,
+                                     'preserve_prewrap_newlines': False}
         settings.save_settings(values)
         loaded = settings.load_settings()
         self.assertEqual(loaded['html_formatting'],
                          {'css_font_to_semantic': False,
-                          'bold_first_row_to_header': True})
+                          'bold_first_row_to_header': True,
+                          'preserve_prewrap_newlines': False})
         config = settings.config_file()
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text(json.dumps({'html_formatting': {
@@ -434,17 +436,20 @@ class DesktopTests(unittest.TestCase):
         loaded = settings.load_settings()
         self.assertEqual(loaded['html_formatting'],
                          {'css_font_to_semantic': True,
-                          'bold_first_row_to_header': True})
+                          'bold_first_row_to_header': True,
+                          'preserve_prewrap_newlines': True})
 
     def test_gui_save_persists_html_formatting(self):
         window = self.window()
         window.font_semantic.setChecked(False)
         window.bold_header.setChecked(True)
+        window.prewrap_newlines.setChecked(False)
         window.save()
         loaded = settings.load_settings()
         self.assertEqual(loaded['html_formatting'],
                          {'css_font_to_semantic': False,
-                          'bold_first_row_to_header': True})
+                          'bold_first_row_to_header': True,
+                          'preserve_prewrap_newlines': False})
 
     def test_converted_reports_ready_table(self):
         window = self.window()

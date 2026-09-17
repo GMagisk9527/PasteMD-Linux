@@ -30,9 +30,11 @@ local config = nil
 
 local function get_config()
   if config == nil then
-    config = { bold = {}, italic = {}, promote = false, protect_tasks = false }
+    config = { bold = {}, italic = {}, promote = false, protect_tasks = false,
+               prewrap = {}, prewrap_on = false }
     load_class_list(os.getenv('PASTEMD_FONT_BOLD_CLASSES'), config.bold)
     load_class_list(os.getenv('PASTEMD_FONT_ITALIC_CLASSES'), config.italic)
+    load_class_list(os.getenv('PASTEMD_PREWRAP_CLASSES'), config.prewrap)
     local promote = os.getenv('PASTEMD_PROMOTE_BOLD_HEADER')
     if promote == 'true' or promote == '1' then
       config.promote = true
@@ -40,6 +42,10 @@ local function get_config()
     local protect = os.getenv('PASTEMD_PROTECT_TASKS')
     if protect == '1' or protect == 'true' then
       config.protect_tasks = true
+    end
+    local prewrap = os.getenv('PASTEMD_PRESERVE_PREWRAP')
+    if prewrap == '1' or prewrap == 'true' then
+      config.prewrap_on = true
     end
   end
   return config
@@ -74,9 +80,55 @@ end
 
 local function strip_delimiters(text)
   text = text:gsub('^%s+', ''):gsub('%s+$', '')
+  -- 部分来源会把反斜杠转义成双写（\\( … \\)），先归一化为单反斜杠
+  text = text:gsub('\\+\\%(', '\\(')
+  text = text:gsub('\\+\\%)', '\\)')
+  text = text:gsub('\\+\\%[', '\\[')
+  text = text:gsub('\\+\\%]', '\\]')
   text = text:gsub('^\\%(%s*', ''):gsub('%s*\\%)$', '')
   text = text:gsub('^\\%[%s*', ''):gsub('%s*\\%]$', '')
+  -- $$…$$ 与成对的单 $（仅当两端同时出现才剥，避免误伤正文里的美元符号）
+  if text:sub(1, 2) == '$$' and text:sub(-2) == '$$' and #text > 4 then
+    text = text:sub(3, -3)
+  elseif text:sub(1, 1) == '$' and text:sub(-1) == '$' and #text > 2 then
+    text = text:sub(2, -2)
+  end
   return text:gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+local MATH_CLASSES = { ['math'] = true }
+
+local function is_math_class(classes)
+  return has_class(classes, MATH_CLASSES)
+end
+
+local function is_display_math_class(classes)
+  return has_class(classes, { ['math-block'] = true, ['math-display'] = true })
+end
+
+local function collect_text(inlines)
+  local parts = {}
+  local function walk(nodes)
+    for _, node in ipairs(nodes or {}) do
+      if node.t == 'Str' then
+        parts[#parts + 1] = node.text
+      elseif node.t == 'Space' or node.t == 'SoftBreak' or node.t == 'LineBreak' then
+        parts[#parts + 1] = ' '
+      elseif type(node.content) == 'table' then
+        walk(node.content)
+      end
+    end
+  end
+  walk(inlines)
+  return table.concat(parts)
+end
+
+local function math_from_text(text, display)
+  text = strip_delimiters(text)
+  if text == '' then
+    return nil
+  end
+  return pandoc.Math(display and 'DisplayMath' or 'InlineMath', text)
 end
 
 local function inline_has_display(inlines)
@@ -210,6 +262,59 @@ local function protect_inlines(inlines)
   return changed
 end
 
+-- white-space:pre-wrap 块里的源码换行被 pandoc 统一折叠成 SoftBreak，
+-- 输出时渲染为空格；这里换回 LineBreak（docx 落 w:br，gfm 落硬换行）
+local function prewrap_inlines(inlines)
+  local changed = false
+  for index = 1, #inlines do
+    local inline = inlines[index]
+    if inline.t == 'SoftBreak' then
+      -- 元素属性只读（.t 是 read-only tag），必须整槽位替换
+      inlines[index] = pandoc.LineBreak()
+      changed = true
+    else
+      local ok, content = pcall(function() return inline.content end)
+      if ok and content ~= nil and prewrap_inlines(content) then
+        changed = true
+      end
+    end
+  end
+  return changed
+end
+
+local function prewrap_blocks(blocks)
+  local changed = false
+  for _, block in ipairs(blocks or {}) do
+    if (block.t == 'Plain' or block.t == 'Para') and prewrap_inlines(block.content) then
+      changed = true
+    end
+  end
+  return changed
+end
+
+local function style_value(elem)
+  -- pandoc 3.7 的 attr 是 userdata，type() 检查不可靠，用 pcall 直接索引
+  local ok, style = pcall(function() return elem.attributes['style'] end)
+  if not ok or not style or style == '' then
+    ok, style = pcall(function() return elem.attr.attributes['style'] end)
+  end
+  if ok and style then
+    return tostring(style)
+  end
+  return ''
+end
+
+local function is_prewrap(elem, cfg)
+  if style_value(elem):find('pre%-wrap', 1, false) then
+    return true
+  end
+  local ok, classes = pcall(function() return elem.classes end)
+  if ok then
+    return has_class(classes, cfg.prewrap)
+  end
+  return false
+end
+
 function Para(para)
   if get_config().protect_tasks then
     protect_inlines(para.content)
@@ -232,10 +337,21 @@ function Span(span)
   if math ~= nil then
     return math
   end
+  -- Obsidian 等编辑器把公式包成 <span class="math math-inline|math-block">
+  if is_math_class(span.classes) then
+    local math_elem = math_from_text(collect_text(span.content),
+                                     is_display_math_class(span.classes))
+    if math_elem ~= nil then
+      return math_elem
+    end
+  end
   -- 就地修改必须显式返回元素，返回 nil 时 pandoc 使用原始副本
-  local protected = false
+  local changed = false
   if cfg.protect_tasks then
-    protected = protect_inlines(span.content)
+    changed = protect_inlines(span.content) or changed
+  end
+  if cfg.prewrap_on and is_prewrap(span, cfg) then
+    changed = prewrap_inlines(span.content) or changed
   end
   local bold = has_class(span.classes, cfg.bold)
   local italic = has_class(span.classes, cfg.italic)
@@ -243,7 +359,7 @@ function Span(span)
     span.content = wrap_inline(span.content, bold, italic)
     return span
   end
-  if protected then
+  if changed then
     return span
   end
   return nil
@@ -255,17 +371,37 @@ function Div(div)
   if source and source ~= '' then
     return { pandoc.Para{ latex_math(source, blocks_have_display(div.content)) } }
   end
-  local bold = has_class(div.classes, cfg.bold)
-  local italic = has_class(div.classes, cfg.italic)
-  if not (bold or italic) then
-    return nil
-  end
-  for _, block in ipairs(div.content or {}) do
-    if block.t == 'Plain' or block.t == 'Para' then
-      block.content = wrap_inline(block.content, bold, italic)
+  -- Obsidian 块级公式：<div class="math math-block">…</div>
+  if is_math_class(div.classes) then
+    local parts = {}
+    for _, block in ipairs(div.content or {}) do
+      if block.t == 'Plain' or block.t == 'Para' then
+        parts[#parts + 1] = collect_text(block.content)
+      end
+    end
+    local math_elem = math_from_text(table.concat(parts, ' '), true)
+    if math_elem ~= nil then
+      return { pandoc.Plain{ math_elem } }
     end
   end
-  return div
+  local prewrap_changed = false
+  if cfg.prewrap_on and is_prewrap(div, cfg) then
+    prewrap_changed = prewrap_blocks(div.content)
+  end
+  local bold = has_class(div.classes, cfg.bold)
+  local italic = has_class(div.classes, cfg.italic)
+  if bold or italic then
+    for _, block in ipairs(div.content or {}) do
+      if block.t == 'Plain' or block.t == 'Para' then
+        block.content = wrap_inline(block.content, bold, italic)
+      end
+    end
+    return div
+  end
+  if prewrap_changed then
+    return div
+  end
+  return nil
 end
 
 function Image(image)
