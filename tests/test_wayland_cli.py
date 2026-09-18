@@ -232,6 +232,23 @@ class WaylandTests(unittest.TestCase):
                                          {'fix_single_dollar_block': False})
         self.assertEqual(self._count_math(json.loads(untouched)), 0)
 
+    def test_inline_math_space_fix_skips_code_spans_and_fences(self):
+        from pastemd.utils.latex import convert_latex_delimiters
+        # 行内代码里的 $ 是普通文本，不得改写
+        self.assertEqual(convert_latex_delimiters('运行 `$  ls  $` 命令查看'),
+                         '运行 `$  ls  $` 命令查看')
+        # 行外真公式仍要压缩空格
+        self.assertEqual(convert_latex_delimiters('真公式 $  x^2  $ 好了'),
+                         '真公式 $x^2$ 好了')
+        # 同一行多片段：代码保留、公式压缩
+        self.assertEqual(convert_latex_delimiters('$  a  $ 与 `$  b  `$ 混排'),
+                         '$a$ 与 `$  b  `$ 混排')
+        # 围栏代码块整体原样保留
+        self.assertEqual(convert_latex_delimiters('```bash\n$ HOME $ set\n```'),
+                         '```bash\n$ HOME $ set\n```')
+        self.assertEqual(convert_latex_delimiters('~~~\n$  x  $\n~~~'),
+                         '~~~\n$  x  $\n~~~')
+
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
     def test_keep_original_formula_converts_math_to_text(self):
         import json
@@ -298,6 +315,25 @@ class WaylandTests(unittest.TestCase):
                          [['a', 'b'], ['1', '2']])
         self.assertIsNone(parse_markdown_table('没有表格的文本'))
         self.assertIsNone(parse_markdown_table('| 只有表头 |'))
+
+    def test_markdown_table_escape_semantics(self):
+        from pastemd.utils.spreadsheet import parse_markdown_table
+        # \| 是字面竖线
+        self.assertEqual(
+            parse_markdown_table('| a\\|b | c |\n|---|---|\n| 1 | 2 |'),
+            [['a|b', 'c'], ['1', '2']])
+        # \\ 是字面反斜杠，其后的 | 仍是分隔符
+        self.assertEqual(
+            parse_markdown_table('| a\\\\|b | c |\n|---|---|---|\n| 1 | 2 | 3 |'),
+            [['a\\', 'b', 'c'], ['1', '2', '3']])
+        from pastemd.utils.spreadsheet import _split_table_cells
+        self.assertEqual(_split_table_cells('a\\|b'), ['a|b'])
+        self.assertEqual(_split_table_cells('a\\\\|b'), ['a\\', 'b'])
+
+    def test_table_tsv_replaces_tabs(self):
+        from pastemd.utils.spreadsheet import parse_markdown_table, table_to_tsv
+        table = parse_markdown_table('| a\tb | c |\n|---|---|\n| 1 | 2 |')
+        self.assertEqual(table_to_tsv(table), 'a b\tc\n1\t2')
 
     def test_table_html_and_tsv_rendering(self):
         from pastemd.utils.spreadsheet import table_to_html, table_to_tsv
@@ -394,6 +430,18 @@ class WaylandTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, '未知的目标格式'):
             cli.text_clipboard_payload(b'x', b'ast', 'markdown', 'rtf')
 
+    def test_md_passthrough_respects_fix_single_dollar_block(self):
+        # md→md 直通须把 options 传给 convert_latex_delimiters，
+        # 用户关闭单 $ 行修复后不得再转换
+        source = '前言\n$\nx^2+y^2\n$\n后记'
+        payload = cli.text_clipboard_payload(source.encode(), b'ast',
+                                             'markdown' + cli.MATH_EXTENSIONS, 'md',
+                                             {'fix_single_dollar_block': False})
+        self.assertEqual(payload['text/plain'].decode(), source)
+        payload = cli.text_clipboard_payload(source.encode(), b'ast',
+                                             'markdown' + cli.MATH_EXTENSIONS, 'md', {})
+        self.assertIn('$$', payload['text/plain'].decode())
+
     @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
     def test_md_text_flow_task_lists_math_and_wrapping(self):
         html = (b'<ul><li><span>[x]</span> done item</li>'
@@ -436,6 +484,23 @@ class WaylandTests(unittest.TestCase):
         code = '段落\n```\nline1\nline2\n```\n结尾'
         self.assertEqual(normalize_markdown(code),
                          '段落\n\n```\nline1\nline2\n```\n\n结尾')
+
+    def test_md_normalizer_tilde_fence_and_bare_separator(self):
+        from pastemd.utils.md_normalizer import normalize_markdown
+        # ~~~ 围栏内部保持原样
+        self.assertEqual(
+            normalize_markdown('~~~\n# 不是标题\ntail\n~~~\n结尾'),
+            '~~~\n# 不是标题\ntail\n~~~\n\n结尾')
+        # ~~~ 块内的 ``` 不得翻转围栏状态
+        self.assertEqual(
+            normalize_markdown('~~~md\n```\ncode\n```\n~~~\nafter'),
+            '~~~md\n```\ncode\n```\n~~~\n\nafter')
+        # 无前导竖线的 GFM 分隔行属于表格，不得拆断
+        self.assertEqual(
+            normalize_markdown('| a | b |\n---|---|---\n| 1 | 2 |'),
+            '| a | b |\n---|---|---\n| 1 | 2 |')
+        # 裸 --- 仍是水平线，前后补空行
+        self.assertIn('\n---\n', normalize_markdown('段落\n---\n下一段'))
 
     def test_extract_font_classes_from_style_blocks(self):
         html = ('<style>.b{font-weight:bold}.w{font-weight:600}.i{font-style:italic}'

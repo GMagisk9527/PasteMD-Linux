@@ -9,14 +9,15 @@ from typing import List, Optional
 
 
 def _split_table_cells(line: str) -> List[str]:
-    """按 | 分割单元格，正确处理转义的竖线。"""
+    """按 | 分割单元格，正确处理转义：\\| 是字面竖线，\\\\ 是字面反斜杠。"""
     cells = []
     current_cell = []
     i = 0
     while i < len(line):
-        if i > 0 and line[i] == '|' and line[i - 1] == '\\':
-            current_cell[-1] = '|'
-            i += 1
+        if line[i] == '\\' and i + 1 < len(line) and line[i + 1] in ('\\', '|'):
+            # \| -> 字面 |；\\ -> 字面 \（其后的 | 是真正的分隔符）
+            current_cell.append(line[i + 1])
+            i += 2
         elif line[i] == '|':
             cells.append(''.join(current_cell).strip())
             current_cell = []
@@ -280,13 +281,14 @@ def table_to_html(table_data: List[List[str]], *, keep_format: bool = True) -> s
 
 
 def table_to_tsv(table_data: List[List[str]]) -> str:
-    """表格转 TSV，单元格内换行折叠为空格。"""
+    """表格转 TSV，单元格内换行折叠为空格，制表符替换为空格防串列。"""
     lines = []
     for row in table_data:
         out_cells = []
         for cell_value in row:
             text = CellFormat(cell_value).parse()
             text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\n', ' ')
+            text = text.replace('\t', ' ')
             out_cells.append(text)
         lines.append('\t'.join(out_cells))
     return '\n'.join(lines)

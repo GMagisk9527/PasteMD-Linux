@@ -54,9 +54,12 @@ def _convert_standard_latex_delimiters(text: str) -> str:
 def _fix_inline_math_spaces(text: str) -> str:
     """
     修复行内公式中 $ 后面的空格和 $ 前面的空格
-    
+
     Pandoc tex_math_dollars 要求 $ 后不能有空格，$ 前不能有空格
     例如：$  L  $ -> $L$
+
+    围栏代码块与行内代码（反引号片段）原样保留：里面的 $ 往往是 shell
+    变量、价格等普通文本，不是公式。
     """
     def fix_inline_spaces(match):
         content = match.group(1)
@@ -65,7 +68,37 @@ def _fix_inline_math_spaces(text: str) -> str:
     # 匹配 $ + 空格 + 内容 + 空格 + $
     # 排除 $$ 的情况
     # 使用 [ \t]+ 仅匹配水平空白，避免误伤多行块级公式
-    return re.sub(r'(?<!\$)\$(?!\$)[ \t]+([^\n$]+?)[ \t]+(?<!\$)\$(?!\$)', fix_inline_spaces, text)
+    pattern = r'(?<!\$)\$(?!\$)[ \t]+([^\n$]+?)[ \t]+(?<!\$)\$(?!\$)'
+
+    lines = text.split('\n')
+    result = []
+    in_code_block = False
+    code_fence_char = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('```') or stripped.startswith('~~~'):
+            fence = stripped[:3]
+            if not in_code_block:
+                in_code_block = True
+                code_fence_char = fence
+            elif stripped.startswith(code_fence_char):
+                in_code_block = False
+                code_fence_char = ""
+            result.append(line)
+            continue
+        if in_code_block:
+            result.append(line)
+            continue
+        # 奇数下标是行内代码片段，原样保留；偶数下标才做 $ 修复
+        parts = _INLINE_CODE_SPAN_RE.split(line)
+        for index in range(0, len(parts), 2):
+            if parts[index]:
+                parts[index] = re.sub(pattern, fix_inline_spaces, parts[index])
+        result.append(''.join(parts))
+    return '\n'.join(result)
+
+
+_INLINE_CODE_SPAN_RE = re.compile(r'(`[^`\n]*`)')
 
 
 def _fix_single_dollar_blocks(text: str) -> str:

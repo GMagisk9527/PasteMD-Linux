@@ -312,15 +312,19 @@ def text_clipboard_label(target_format):
     return TEXT_FORMAT_LABELS.get(target_format, target_format)
 
 
-def text_clipboard_payload(raw, document, reader, target_format):
+def text_clipboard_payload(raw, document, reader, target_format, options=None):
     """应用扩展流程：把内容转成 Markdown/LaTeX/HTML 纯文本剪贴板载荷。
 
     raw 是剪贴板原始字节，document 是 prepare_document 产出的 pandoc JSON AST。
     """
+    options = options or {}
     if target_format == 'md':
         if reader.startswith('markdown'):
-            # 原文直通，仅套用公式分隔符修复，避免 Pandoc 重排用户的 Markdown。
-            text = convert_latex_delimiters(raw.decode('utf-8', 'replace'))
+            # 原文直通，仅按用户设置套用公式分隔符修复，
+            # 避免 Pandoc 重排用户的 Markdown。
+            text = convert_latex_delimiters(
+                raw.decode('utf-8', 'replace'),
+                bool(options.get('fix_single_dollar_block', True)))
             return {'text/plain': text.encode('utf-8')}
         # gfm-raw_html 剥离残留 HTML，--wrap none 不做 72 列硬折行
         # （对齐上游 _convert_html_to_md；tex_math_dollars 对 gfm writer 无效，
@@ -552,7 +556,8 @@ def main(argv=None, options=None):
             raw_source = content
             content = prepare_document(content, reader, options,
                                        protect_task_lists=(args.as_format == 'md'))
-            payload = text_clipboard_payload(raw_source, content, reader, args.as_format)
+            payload = text_clipboard_payload(raw_source, content, reader,
+                                             args.as_format, options)
             set_clipboard_payload(payload)
             message = f'已按{text_clipboard_label(args.as_format)}文本写入剪贴板，在目标应用中按 Ctrl+V。'
             notify(message)

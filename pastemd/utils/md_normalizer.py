@@ -11,19 +11,35 @@ _HEADING_RE = re.compile(r'^#{1,6}\s+')
 _HR_RE = re.compile(r'^[-*_]{3,}$')
 _ULIST_RE = re.compile(r'^[-*+]\s')
 _OLIST_RE = re.compile(r'^\d+\.\s')
+_FENCE_RE = re.compile(r'^(```|~~~)')
 
 
-def _line_type(line, in_code_block, in_table):
+def _is_table_separator(line):
+    """GFM 表格分隔行：只含 |、-、: 和空白，且至少有一个竖线。
+
+    `---|---|---` 与 `|---|---|` 等价，都是合法分隔行；裸 `---` 是
+    水平线/-setext- 下划线，不算。
+    """
+    stripped = line.strip()
+    if '|' not in stripped or '-' not in stripped:
+        return False
+    cells = [cell.strip() for cell in stripped.strip('|').split('|')]
+    return bool(cells) and all(re.fullmatch(r':?-+:?', cell) for cell in cells)
+
+
+def _line_type(line, in_code_block):
     stripped = line.strip()
     if not stripped:
         return 'empty'
     if in_code_block:
         return 'code'
-    if line.startswith('```'):
+    if _FENCE_RE.match(line):
         return 'code'
     if _HEADING_RE.match(line):
         return 'heading'
     if line.startswith('|') and line.endswith('|'):
+        return 'table'
+    if _is_table_separator(line):
         return 'table'
     if _HR_RE.match(stripped):
         return 'hr'
@@ -57,7 +73,7 @@ def _needs_blank_after(current_type, index, lines, in_code_block):
         return False
     if current_type in ('heading', 'hr'):
         return True
-    if current_type == 'code' and lines[index].startswith('```') and not in_code_block:
+    if current_type == 'code' and _FENCE_RE.match(lines[index]) and not in_code_block:
         return True
     return False
 
@@ -67,16 +83,18 @@ def normalize_markdown(md_text):
     lines = md_text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
     result = []
     in_code_block = False
-    in_table = False
+    code_fence_char = ""
     prev_type = 'start'
     for index, line in enumerate(lines):
-        current = _line_type(line, in_code_block, in_table)
-        if line.startswith('```'):
-            in_code_block = not in_code_block
-        if current == 'table':
-            in_table = True
-        elif in_table and current not in ('table', 'empty'):
-            in_table = False
+        current = _line_type(line, in_code_block)
+        fence = _FENCE_RE.match(line)
+        if fence:
+            if not in_code_block:
+                in_code_block = True
+                code_fence_char = fence.group(1)
+            elif fence.group(1) == code_fence_char:
+                in_code_block = False
+                code_fence_char = ""
         if _needs_blank_before(prev_type, current) and result and result[-1].strip():
             result.append('')
         result.append(line)

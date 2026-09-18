@@ -57,7 +57,8 @@ class ConversionWorker(QThread):
                     raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
                 document = cli.prepare_document(source, reader, self.options,
                                                 protect_task_lists=(self.flow == 'md'))
-                payload = cli.text_clipboard_payload(source, document, reader, self.flow)
+                payload = cli.text_clipboard_payload(source, document, reader, self.flow,
+                                                     self.options)
                 token = uuid.uuid4().hex.encode('ascii')
                 payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
@@ -76,7 +77,7 @@ class ConversionWorker(QThread):
                 fd, name = tempfile.mkstemp(prefix='paste-', suffix='.docx', dir=cache)
                 os.close(fd)
                 try:
-                    docx = cli.run(['pandoc', '--from', 'json'] + cli.docx_writer_args(self.options)
+                    docx = cli.run([cli.pandoc_bin(), '--from', 'json'] + cli.docx_writer_args(self.options)
                                    + ['--to', 'docx', '--output', '-'], document)
                     docx = cli.finish_docx(docx, reader, self.options)
                     Path(name).write_bytes(docx)
@@ -86,7 +87,7 @@ class ConversionWorker(QThread):
                 lost = cli.lost_image_count(document, docx)
                 self.completed.emit({'path': name, 'lost_images': lost})
             else:
-                plain = cli.run(['pandoc', '-f', 'json', '-t', 'plain'], document)
+                plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
                 payload = cli.native_clipboard_payload(document, plain, self.options, reader)
                 token = uuid.uuid4().hex.encode('ascii')
                 payload[CLIPBOARD_TOKEN_MIME] = token
@@ -414,7 +415,8 @@ class MainWindow(QMainWindow):
         self.instructions.setText(f'① 复制 Markdown 或网页内容\n② 回到 WPS 的 .docx 文档\n③ 按 {key} 转换并粘贴')
 
     def _refresh_dependencies(self):
-        missing = [name for name in ('pandoc', 'wl-paste') if not shutil.which(name)]
+        pandoc = cli.pandoc_bin()
+        missing = [name for name in (pandoc, 'wl-paste') if not shutil.which(name)]
         if importlib.util.find_spec('PySide6') is None:
             missing.append('python3-pyside6')
         self.dependencies.setText(
@@ -864,13 +866,14 @@ def main(argv=None):
     if args.serve_clipboard:
         return cli.serve_clipboard()
     if args.package_self_test:
-        missing = [name for name in ('pandoc', 'wl-paste') if not shutil.which(name)]
+        pandoc = cli.pandoc_bin()
+        missing = [name for name in (pandoc, 'wl-paste') if not shutil.which(name)]
         if missing:
             print('缺少打包组件：' + '、'.join(missing), file=sys.stderr)
             return 1
         document = cli.prepare_document(
             cli.DEMO_MARKDOWN.encode('utf-8'), 'markdown' + cli.MATH_EXTENSIONS)
-        plain = cli.run(['pandoc', '--from', 'json', '--to', 'plain'], document)
+        plain = cli.run([cli.pandoc_bin(), '--from', 'json', '--to', 'plain'], document)
         payload = cli.native_clipboard_payload(document, plain)
         print('PACKAGE-SELF-TEST OK: native DOCX bytes=' +
               str(len(payload['Kingsoft WPS 9.0 Format'])))
