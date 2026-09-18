@@ -12,7 +12,9 @@
 -- 另外移除 .svg 位图引用（DOCX 无法嵌入，提前剔除避免误报图片丢失）。
 
 local KATEX_DISPLAY = { ['katex-display'] = true }
-local MATH_CLASSES = { ['math-inline'] = true, ['math-block'] = true, ['math-display'] = true }
+-- 同时覆盖 pandoc 原生 math 类与 Obsidian/KaTeX 风格的 math-inline/block/display
+local MATH_CLASSES = { ['math'] = true, ['math-inline'] = true,
+                       ['math-block'] = true, ['math-display'] = true }
 local MATH_DISPLAY_CLASSES = { ['math-block'] = true, ['math-display'] = true }
 
 local function load_class_list(value, target)
@@ -96,14 +98,12 @@ local function strip_delimiters(text)
   return text:gsub('^%s+', ''):gsub('%s+$', '')
 end
 
-local MATH_CLASSES = { ['math'] = true }
+local function is_display_math_class(classes)
+  return has_class(classes, MATH_DISPLAY_CLASSES)
+end
 
 local function is_math_class(classes)
   return has_class(classes, MATH_CLASSES)
-end
-
-local function is_display_math_class(classes)
-  return has_class(classes, { ['math-block'] = true, ['math-display'] = true })
 end
 
 local function collect_text(inlines)
