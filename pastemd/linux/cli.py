@@ -216,7 +216,7 @@ def prepare_document(content, reader, options=None, protect_task_lists=False):
         # gfm writer 把方括号转义成 \[x]；docx 流程保持原样
         if protect_task_lists:
             env['PASTEMD_PROTECT_TASKS'] = '1'
-    args = ['pandoc', '--from', reader, '--to', 'json']
+    args = [pandoc_bin(), '--from', reader, '--to', 'json']
     if env is not None:
         args += ['--lua-filter', lua_filter('semantic-html.lua')]
     document = json.loads(run(
@@ -224,6 +224,11 @@ def prepare_document(content, reader, options=None, protect_task_lists=False):
     document = clean_document(document)
     document['meta'] = {}
     return json.dumps(document, ensure_ascii=False).encode('utf-8')
+
+
+def pandoc_bin():
+    """pandoc 可执行路径；PASTEMD_PANDOC_BIN 可覆盖（测试/多版本场景）。"""
+    return os.environ.get('PASTEMD_PANDOC_BIN') or 'pandoc'
 
 
 def run(command, data=None, env=None):
@@ -280,7 +285,7 @@ def read_table_source():
                  if kind.partition(';')[0].strip().lower() == 'text/html'), None)
     if html:
         raw = run(['wl-paste', '--no-newline', '--type', html])
-        return run(['pandoc', '--from', 'html', '--to', 'gfm'], raw).decode('utf-8', 'replace')
+        return run([pandoc_bin(), '--from', 'html', '--to', 'gfm'], raw).decode('utf-8', 'replace')
     raise RuntimeError('剪贴板没有文本，无法识别表格。请复制 Markdown 表格或网页表格。')
 
 
@@ -315,7 +320,7 @@ def text_clipboard_payload(raw, document, reader, target_format):
         # gfm-raw_html 剥离残留 HTML，--wrap none 不做 72 列硬折行
         # （对齐上游 _convert_html_to_md；tex_math_dollars 对 gfm writer 无效，
         # 其数学固定输出 GitLab 风格的 $`…`，下方统一还原为通用性更好的 $…$）
-        text = run(['pandoc', '--from', 'json', '--to', 'gfm-raw_html',
+        text = run([pandoc_bin(), '--from', 'json', '--to', 'gfm-raw_html',
                     '--wrap', 'none'], document).decode('utf-8', 'replace')
         text = text.replace('$`', '$').replace('`$', '$')
         # 任务列表占位还原（保护开关开启时由 Lua 写入，其余情况无占位符）
@@ -323,13 +328,13 @@ def text_clipboard_payload(raw, document, reader, target_format):
                    .replace('{{PASTEMD_TASK_UNCHECKED}}', '[ ]')
         return {'text/plain': text.encode('utf-8')}
     if target_format == 'latex':
-        text = run(['pandoc', '--from', 'json', '--to', 'latex'],
+        text = run([pandoc_bin(), '--from', 'json', '--to', 'latex'],
                    document).decode('utf-8', 'replace')
         return {'text/plain': text.encode('utf-8')}
     if target_format == 'html':
         if reader.startswith('html'):
             return {'text/html': raw}
-        text = run(['pandoc', '--from', 'json', '--to', 'html'],
+        text = run([pandoc_bin(), '--from', 'json', '--to', 'html'],
                    document).decode('utf-8', 'replace')
         return {'text/html': text.encode('utf-8')}
     raise RuntimeError(f'未知的目标格式：{target_format}')
@@ -385,7 +390,7 @@ def lost_image_count(document, docx):
 
 def native_clipboard_payload(document, plain_text, options=None, reader='markdown'):
     """WPS exposes a DOCX ZIP under this native X11 clipboard format."""
-    docx = run(['pandoc', '--from', 'json', '--to', 'docx', '--output', '-']
+    docx = run([pandoc_bin(), '--from', 'json', '--to', 'docx', '--output', '-']
                + docx_writer_args(options), document)
     docx = finish_docx(docx, reader, options)
     with zipfile.ZipFile(io.BytesIO(docx)) as archive:
@@ -556,7 +561,7 @@ def main(argv=None, options=None):
         if not content.strip():
             raise RuntimeError('剪贴板内容为空。')
         content = prepare_document(content, reader, options)
-        command = ['pandoc', '--from', 'json']
+        command = [pandoc_bin(), '--from', 'json']
         if not use_clipboard:
             cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
             cache.mkdir(parents=True, exist_ok=True)

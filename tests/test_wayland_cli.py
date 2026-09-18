@@ -82,7 +82,7 @@ class WaylandTests(unittest.TestCase):
             with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', return_value=b'') as run, patch.object(cli, 'notify'):
                 self.assertEqual(cli.main(['--docx'], options={}), 0)
                 command = run.call_args.args[0]
-                self.assertEqual(command[:3], ['pandoc', '--from', 'json'])
+                self.assertEqual([Path(command[0]).name] + command[1:3], ['pandoc', '--from', 'json'])
                 self.assertIn('--to', command)
                 self.assertEqual(command[-1], '-')
                 saved = list((Path(directory) / 'pastemd').glob('*.docx'))
@@ -327,7 +327,7 @@ class WaylandTests(unittest.TestCase):
                 b'text/html\n', html.encode(), '| a |\n|---|\n| 1 |'.encode()]) as run:
             text = cli.read_table_source()
         self.assertIn('| a |', text)
-        self.assertEqual(run.call_args_list[2].args[0][:2], ['pandoc', '--from'])
+        self.assertEqual([Path(run.call_args_list[2].args[0][0]).name] + run.call_args_list[2].args[0][1:2], ['pandoc', '--from'])
         self.assertEqual(run.call_args_list[2].args[0][-1], 'gfm')
 
     def test_cli_table_mode_writes_html_clipboard(self):
@@ -377,11 +377,11 @@ class WaylandTests(unittest.TestCase):
             payload = cli.text_clipboard_payload(b'x', b'ast', 'markdown+tex', 'latex')
         self.assertEqual(payload['text/plain'], b'latex out')
         self.assertEqual(run.call_args.args[0][-2:], ['--to', 'latex'])
-        self.assertEqual(run.call_args.args[0][:4], ['pandoc', '--from', 'json', '--to'])
+        self.assertEqual([Path(run.call_args.args[0][0]).name] + run.call_args.args[0][1:4], ['pandoc', '--from', 'json', '--to'])
         with patch.object(cli, 'run', return_value=b'md out') as run:
             payload = cli.text_clipboard_payload(b'<p>x</p>', b'ast', 'html', 'md')
         self.assertEqual(payload['text/plain'], b'md out')
-        self.assertEqual(run.call_args.args[0],
+        self.assertEqual([Path(run.call_args.args[0][0]).name] + run.call_args.args[0][1:],
                          ['pandoc', '--from', 'json', '--to', 'gfm-raw_html',
                           '--wrap', 'none'])
         with self.assertRaisesRegex(RuntimeError, '未知的目标格式'):
@@ -470,13 +470,24 @@ class WaylandTests(unittest.TestCase):
         for name, resource_class in apprules.APP_PRESETS:
             self.assertTrue(name and resource_class)
 
-    @unittest.skipUnless(shutil.which('pandoc'), '需要系统 pandoc')
+    @unittest.skipUnless(shutil.which('pandoc') or os.environ.get('PASTEMD_PANDOC_BIN'),
+                         '需要系统 pandoc')
     def test_lua_golden_fixtures(self):
         """黄金测试：锁住 Lua 过滤器 + 转换链的行为，防 pandoc/过滤器回归。
 
         期望输出由 tests/update_fixtures.py 生成；有意变更行为后重新生成，
-        并用 git diff 审查变化。注意需用与 vendored 一致的 pandoc 3.7 运行。
+        并用 git diff 审查变化。黄金只钉与 vendored 一致的**官方** pandoc
+        3.7.0.2：发行版重打包（如 Fedora 会 backport 后续 AST 变更，api
+        [1,23,1,1]）与官方（[1,23,1]）输出不同，遇到发行版版本会跳过——
+        设 PASTEMD_PANDOC_BIN 指向官方二进制即可运行。
         """
+        pandoc = cli.pandoc_bin()
+        api = json.loads(subprocess.run(
+            [pandoc, '-f', 'html', '-t', 'json'], input='<p>x</p>',
+            capture_output=True, text=True).stdout)['pandoc-api-version']
+        if api != [1, 23, 1]:
+            self.skipTest(f'pandoc api-version {api} 与官方 3.7.0.2 不符'
+                          '（发行版补丁版）；设 PASTEMD_PANDOC_BIN 指向官方二进制')
         fixtures = Path(__file__).parent / 'fixtures'
         cases = [
             ('ai_answer', ''),
