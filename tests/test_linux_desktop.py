@@ -195,7 +195,10 @@ class DesktopTests(unittest.TestCase):
         with patch("pastemd.linux.gui.QApplication.clipboard") as clipboard:
             clipboard.return_value.mimeData.return_value.data.return_value = b"sample"
             window._try_paste()
-        window.x11.paste.assert_called_once_with(window.target)
+        window.x11.paste.assert_called_once()
+        call = window.x11.paste.call_args
+        self.assertEqual(call.args[0], window.target)
+        self.assertTrue(call.kwargs.get('move_cursor_to_end'))
         self.assertFalse(window.paste_pending)
 
     def test_changed_clipboard_cancels_automatic_paste(self):
@@ -233,6 +236,24 @@ class DesktopTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             backend.paste((10, b'docx'))
         backend.xtest.XTestFakeKeyEvent.assert_not_called()
+
+    def test_paste_backend_sends_ctrl_end_when_cursor_move_enabled(self):
+        backend = X11Paste.__new__(X11Paste)
+        backend.display = Mock()
+        backend.x = Mock()
+        backend.x.XKeysymToKeycode.side_effect = lambda _d, keysym: 50 if keysym == 0xffe3 else (60 if keysym == ord('v') else (61 if keysym == 0xff57 else 0))
+        backend.xtest = Mock()
+        backend.modifiers_held = Mock(return_value=False)
+        backend.focused_app = Mock(return_value=(10, b'docx'))
+        backend.paste((10, b'docx'), move_cursor_to_end=True)
+        events = backend.xtest.XTestFakeKeyEvent.call_args_list
+        # Ctrl down, v down, v up, Ctrl up, Ctrl down, End down, End up, Ctrl up
+        self.assertEqual([(e.args[1], e.args[2]) for e in events],
+                         [(50, 1), (60, 1), (60, 0), (50, 0), (50, 1), (61, 1), (61, 0), (50, 0)])
+        # 关闭开关时只发 Ctrl+V 四个事件
+        backend.xtest.reset_mock()
+        backend.paste((10, b'docx'), move_cursor_to_end=False)
+        self.assertEqual(backend.xtest.XTestFakeKeyEvent.call_count, 4)
 
     def test_busy_window_does_not_start_another_conversion(self):
         window = self.window()

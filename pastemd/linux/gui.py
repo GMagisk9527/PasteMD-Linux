@@ -241,6 +241,9 @@ class MainWindow(QMainWindow):
         self.delay.setSuffix(' 毫秒')
         self.delay.setValue(self.settings['paste_delay_ms'])
         settings_form.addRow('粘贴前等待', self.delay)
+        self.cursor_to_end = QCheckBox('粘贴后把光标移到文档末尾（连续粘贴追加内容）')
+        self.cursor_to_end.setChecked(bool(self.settings.get('move_cursor_to_end', True)))
+        settings_form.addRow(self.cursor_to_end)
         self.notifications = QCheckBox('显示完成和错误通知')
         self.notifications.setChecked(self.settings['notifications'])
         settings_form.addRow(self.notifications)
@@ -519,6 +522,7 @@ class MainWindow(QMainWindow):
             'hotkey': self.key_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             'hotkey_enabled': self.hotkey_enabled.isChecked(), 'auto_paste': self.auto_paste.isChecked(),
             'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
+            'move_cursor_to_end': self.cursor_to_end.isChecked(),
             'notifications': self.notifications.isChecked(),
             'no_app_action': self.no_app_action.currentData(),
             'code_highlight_style': self.highlight_style.currentData(),
@@ -750,7 +754,8 @@ class MainWindow(QMainWindow):
             token_data = mime.data(CLIPBOARD_TOKEN_MIME) if mime is not None else None
             if not self.clipboard_token or token_data is None or bytes(token_data) != self.clipboard_token:
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
-            self.x11.paste(self.target)
+            self.x11.paste(self.target,
+                           move_cursor_to_end=bool(self.settings.get('move_cursor_to_end', True)))
             if self.flow == 'table':
                 self.report('已向 WPS 表格发送粘贴。', notify=True)
             elif self.flow in cli.TEXT_FORMAT_LABELS:

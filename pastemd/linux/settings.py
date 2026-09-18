@@ -27,6 +27,9 @@ DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True
             # 额外把 DOCX 落盘到 save_dir（对齐上游 keep_file/save_dir）
             'keep_file': False,
             'save_dir': None,
+            # 粘贴完成后把光标移到文档末尾（对齐上游 move_cursor_to_end；
+            # Linux 用 XTest 发 Ctrl+End，落点是文档末尾而非插入内容末尾）
+            'move_cursor_to_end': True,
             'keep_original_formula': False,
             'enable_latex_replacements': True,
             'fix_single_dollar_block': True,

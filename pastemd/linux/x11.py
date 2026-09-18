@@ -215,7 +215,7 @@ class X11Paste:
                 return True
         return False
 
-    def paste(self, target):
+    def paste(self, target, move_cursor_to_end=False):
         # KWin 目标（非 X 窗口 id）的稳定性已由调用方核对过；XWayland 的 X 焦点
         # 永远是代理窗口，这里只对真正的 X11 目标做身份复核。
         if not target:
@@ -234,6 +234,26 @@ class X11Paste:
             self.xtest.XTestFakeKeyEvent(self.display, letter, 1, 0)
         finally:
             self.xtest.XTestFakeKeyEvent(self.display, letter, 0, 0)
+            self.xtest.XTestFakeKeyEvent(self.display, ctrl, 0, 0)
+            self.x.XSync(self.display, 0)
+        if move_cursor_to_end:
+            self._send_ctrl_end()
+
+    def _send_ctrl_end(self):
+        """粘贴完成后把光标移到文档末尾（WPS 没有 COM/UNO 接口时的等价实现）。
+
+        与上游 COM 的“折叠到插入内容末尾”不同：这里的光标会落到整个文档
+        末尾，之后接续粘贴仍会把新内容追加到文末。
+        """
+        end = self.x.XKeysymToKeycode(self.display, 0xff57)  # XK_End
+        ctrl = self.x.XKeysymToKeycode(self.display, 0xffe3)
+        if not end or not ctrl:
+            return
+        try:
+            self.xtest.XTestFakeKeyEvent(self.display, ctrl, 1, 0)
+            self.xtest.XTestFakeKeyEvent(self.display, end, 1, 0)
+        finally:
+            self.xtest.XTestFakeKeyEvent(self.display, end, 0, 0)
             self.xtest.XTestFakeKeyEvent(self.display, ctrl, 0, 0)
             self.x.XSync(self.display, 0)
 
