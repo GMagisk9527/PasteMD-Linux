@@ -44,9 +44,6 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           # apt 的 dbus/gi 装在系统 dist-packages（3.12 ABI 兼容 hostedtoolcache）
           PYTHONPATH: /usr/lib/python3/dist-packages
-        run: |
-          echo "PATH=$PATH"
-          which -a pandoc
-          pandoc --version | head -1
-          echo '<p>x</p>' | pandoc -f html -t json | head -c 120
-          python -m unittest discover -s tests -p 'test_*.py' -v
+          # 黄金测试只认官方 3.7.0.2（测试内部会校验 api-version）
+          PASTEMD_PANDOC_BIN: /usr/local/bin/pandoc
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
