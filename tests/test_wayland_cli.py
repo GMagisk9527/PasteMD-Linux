@@ -395,6 +395,25 @@ class WaylandTests(unittest.TestCase):
         self.assertIn('判别式'.encode('utf-8'), payload['text/plain'])
         self.assertIn(b'$\\Delta=b^2-4ac$', payload['text/plain'])
 
+    def test_apprules_malformed_inputs(self):
+        from pastemd.utils import apprules
+        hit_class = {'name': '语雀', 'class': 'yuque'}
+        self.assertTrue(apprules.match_app(hit_class, 'yuque', '语雀文档'))
+        self.assertFalse(apprules.match_app({'class': 123}, '123', '标题'))
+        self.assertFalse(apprules.match_app({'class': 'app', 'window_patterns': [123]},
+                                            'app', '标题'))
+        self.assertTrue(apprules.match_app(
+            {'class': 'app', 'window_patterns': ['foo|bar']}, 'app', 'bar'))
+
+    def test_apprules_pipe_and_malformed_round_trip(self):
+        from pastemd.utils import apprules
+        apps = apprules.parse_rules('编辑器 | code | foo|bar')
+        self.assertEqual(apps, [{'name': '编辑器', 'class': 'code',
+                                 'window_patterns': ['foo|bar']}])
+        self.assertEqual(apprules.format_rules(
+            [{'name': '编辑器', 'class': 'code', 'window_patterns': 'foo|bar'}]),
+                         '编辑器|code|foo|bar')
+
     def test_apprules_match_semantics(self):
         from pastemd.utils import apprules
         hit_class = {'name': '语雀', 'class': 'yuque'}

@@ -29,20 +29,31 @@ def _tokens(name):
 
 def _class_matches(pattern, resource_class):
     """token 级匹配：'et' 命中 'et'/'et.exe'，不命中 'wpsoffice'/'netease'。"""
-    pattern = (pattern or '').strip().lower()
+    if not isinstance(pattern, str):
+        return False
+    pattern = pattern.strip().lower()
     if not pattern:
         return False
-    return bool(_tokens(pattern) & _tokens((resource_class or '').lower()))
+    return bool(_tokens(pattern) & _tokens(str(resource_class or '').lower()))
 
 
 def match_app(app, resource_class, caption):
     """单条规则是否命中当前窗口；class 与标题正则都给出时须同时命中。"""
     if not isinstance(app, dict):
         return False
-    patterns = app.get('window_patterns') or []
+    class_pattern = app.get('class')
+    if class_pattern is not None and not isinstance(class_pattern, str):
+        return False
+    patterns = app.get('window_patterns')
+    if patterns is None:
+        patterns = []
     if isinstance(patterns, str):
         patterns = [patterns]
-    class_required = bool(app.get('class'))
+    if not isinstance(patterns, (list, tuple)):
+        return False
+    if any(not isinstance(pattern, str) for pattern in patterns):
+        return False
+    class_required = bool(class_pattern and class_pattern.strip())
     title_required = bool(patterns)
     class_ok = not class_required or _class_matches(app.get('class'), resource_class)
     title_ok = not title_required
@@ -88,7 +99,7 @@ def parse_rules(text):
         line = line.strip()
         if not line or line.startswith('#'):
             continue
-        parts = [part.strip() for part in line.split(FIELD_SEPARATOR)]
+        parts = [part.strip() for part in line.split(FIELD_SEPARATOR, 2)]
         while len(parts) < 3:
             parts.append('')
         name, class_pattern, title_pattern = parts[0], parts[1], parts[2]
@@ -110,7 +121,12 @@ def format_rules(apps):
         if not isinstance(app, dict):
             continue
         patterns = app.get('window_patterns') or []
-        title = patterns[0] if patterns else ''
+        if isinstance(patterns, str):
+            title = patterns
+        elif isinstance(patterns, (list, tuple)):
+            title = next((item for item in patterns if isinstance(item, str)), '')
+        else:
+            title = ''
         lines.append(FIELD_SEPARATOR.join([
-            app.get('name', ''), app.get('class', ''), title]))
+            str(app.get('name', '') or ''), str(app.get('class', '') or ''), str(title or '')]))
     return '\n'.join(lines)
