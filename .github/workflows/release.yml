@@ -40,14 +40,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 安装 flatpak 与 Builder
+      - name: 安装 flatpak 与构建依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends flatpak
-          flatpak remote-add --if-not-exists flathub \
+          flatpak remote-add --if-not-exists --user flathub \
             https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --system --noninteractive \
-            org.flatpak.Builder//stable
+          # 与 manifest 对齐：Builder + 构建/运行时依赖，全部 user 作用域
+          # （build.sh 用 `flatpak run` 默认解析 user 优先）
+          flatpak install --user --noninteractive flathub \
+            org.flatpak.Builder \
+            org.kde.Platform//6.11 org.kde.Sdk//6.11 \
+            io.qt.PySide.BaseApp//6.11
       - name: 构建 Flatpak
         run: bash packaging/flatpak/build.sh
       - uses: actions/upload-artifact@v4
