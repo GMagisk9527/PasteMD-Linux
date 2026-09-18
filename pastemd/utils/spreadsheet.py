@@ -119,8 +119,13 @@ class CellFormat:
 
         while i < len(text):
             if text[i] == '\\' and i + 1 < len(text):
-                current_text.append(text[i + 1])
-                i += 2
+                # 只解除 Markdown 可转义标点；LaTeX 命令（如 \\Delta）必须保留反斜杠。
+                if text[i + 1] in r'\\`*{}_[]()#+-.!|>~':
+                    current_text.append(text[i + 1])
+                    i += 2
+                    continue
+                current_text.append('\\')
+                i += 1
                 continue
             if text[i] == '`':
                 end = text.find('`', i + 1)

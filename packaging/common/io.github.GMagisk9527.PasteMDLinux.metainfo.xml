@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.1" date="2026-09-18">
+      <description>
+        <p>修复转换器改写用户内容的多处问题：行内代码与代码块内的 $ 不再被误改、~~~ 围栏正确识别、无前导竖线的表格分隔行不再拆断表格、表格转义语义修正（\\、\|）；Markdown 直通尊重转换设置；GUI 统一 pandoc 解析。</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-09-18">
       <description>
         <p>无规则窗口行为可配置（留剪贴板/仍粘贴/每次询问+一键建规则）、托盘直达的窗口规则入口、代码块高亮配色可选。</p>

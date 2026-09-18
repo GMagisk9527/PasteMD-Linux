@@ -82,6 +82,15 @@ jobs:
           fi
           { echo "## PasteMD Linux ${GITHUB_REF_NAME}"; echo; cat changelog-section.md
           } > release-notes.md
+      - name: 校验 metainfo 版本条目
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "<release version=\"${version}\"" \
+            packaging/common/io.github.GMagisk9527.PasteMDLinux.metainfo.xml || {
+            echo "metainfo.xml 缺少 ${version} 的 <release> 条目，应用商店会显示过期版本；" >&2
+            echo "请在 packaging/common/io.github.GMagisk9527.PasteMDLinux.metainfo.xml 补充后重新打 tag" >&2
+            exit 1
+          }
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

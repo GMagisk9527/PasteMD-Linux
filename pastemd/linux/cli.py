@@ -305,6 +305,12 @@ def table_clipboard_payload(markdown_text):
     return payload, len(table)
 
 
+DEMO_TABLE_MARKDOWN = """| 项目 | 公式 |
+|---|---|
+| 判别式 | $\\Delta=b^2-4ac$ |
+"""
+
+
 TEXT_FORMAT_LABELS = {'md': 'Markdown', 'latex': 'LaTeX', 'html': 'HTML'}
 
 
@@ -532,14 +538,15 @@ def main(argv=None, options=None):
     try:
         if not os.environ.get('WAYLAND_DISPLAY'):
             raise RuntimeError('请在 Wayland 桌面会话中运行。')
-        required = ['pandoc'] + ([] if args.demo else ['wl-paste'])
+        required = [pandoc_bin()] + ([] if args.demo else ['wl-paste'])
         if open_docx:
             required.append('flatpak-spawn' if os.environ.get('FLATPAK_ID') else 'wps')
         missing = [tool for tool in required if not shutil.which(tool)]
         if missing:
             raise RuntimeError('缺少命令：' + ', '.join(missing) + '。转换依赖：sudo dnf install pandoc wl-clipboard python3-pyside6；WPS 需单独安装。')
         if args.table:
-            payload, rows = table_clipboard_payload(read_table_source())
+            source = DEMO_TABLE_MARKDOWN if args.demo else read_table_source()
+            payload, rows = table_clipboard_payload(source)
             set_clipboard_payload(payload)
             message = f'表格已就绪（{rows} 行），请在 WPS 表格中按 Ctrl+V。'
             notify(message)

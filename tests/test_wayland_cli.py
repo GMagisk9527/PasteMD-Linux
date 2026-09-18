@@ -384,6 +384,17 @@ class WaylandTests(unittest.TestCase):
         self.assertIn(b'<table>', payload['text/html'])
         self.assertIn('表格已就绪（2 行）', notify.call_args.args[0])
 
+    def test_cli_table_demo_uses_bundled_source(self):
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), \
+             patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(cli, 'read_table_source', side_effect=AssertionError('不应读取系统剪贴板')), \
+             patch.object(cli, 'notify'), \
+             patch.object(cli, 'set_clipboard_payload') as clipboard:
+            self.assertEqual(cli.main(['--demo', '--table'], options={}), 0)
+        payload = clipboard.call_args.args[0]
+        self.assertIn('判别式'.encode('utf-8'), payload['text/plain'])
+        self.assertIn(b'$\\Delta=b^2-4ac$', payload['text/plain'])
+
     def test_apprules_match_semantics(self):
         from pastemd.utils import apprules
         hit_class = {'name': '语雀', 'class': 'yuque'}
