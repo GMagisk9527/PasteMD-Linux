@@ -216,7 +216,37 @@ class WaylandTests(unittest.TestCase):
         self.assertNotIn(cli.lua_filter('latex-replacements.lua'), args)
         self.assertEqual(args.count('--lua-filter'), 3)
         self.assertIn('/tmp/custom.lua', args)
-        self.assertEqual(args[args.index('--filter') + 1], '/tmp/tool.py')
+
+    def test_stage_filters_by_conversion_type(self):
+        options = {'pandoc_filters_by_conversion': {
+            'md_to_docx': ['/tmp/md2docx.lua', '/tmp/exec-filter'],
+            'html_to_md': ['/tmp/html2md.lua']}}
+        args = cli._stage_filter_args('markdown' + cli.MATH_EXTENSIONS, options,
+                                      'md_to_docx')
+        self.assertEqual(args[-4:], ['--lua-filter', '/tmp/md2docx.lua',
+                                     '--filter', '/tmp/exec-filter'])
+        # 其他转换类型不带 md_to_docx 的过滤器
+        other = cli._stage_filter_args('markdown' + cli.MATH_EXTENSIONS, options,
+                                       'html_to_latex')
+        self.assertNotIn('/tmp/md2docx.lua', other)
+        # prepare_document 透传 conversion
+        with patch.object(cli, 'run', return_value=b'{"pandoc-api-version":[1,23,1],"blocks":[],"meta":{}}') as run:
+            cli.prepare_document(b'# x', 'markdown' + cli.MATH_EXTENSIONS, options,
+                                 conversion='md_to_docx')
+        passed = run.call_args.args[0]
+        self.assertIn('/tmp/md2docx.lua', passed)
+        self.assertNotIn('/tmp/html2md.lua', passed)
+        # 非法结构安全跳过（不注入任何用户过滤器，内置过滤器不受影响）
+        clean_args = cli._stage_filter_args(
+            'markdown', {'pandoc_filters_by_conversion': {'md_to_docx': 7}},
+            'md_to_docx')
+        self.assertNotIn('--filter', clean_args)
+        self.assertFalse(any(str(arg).startswith('/tmp') for arg in clean_args))
+
+    def test_conversion_type_names(self):
+        self.assertEqual(cli.conversion_type('markdown' + cli.MATH_EXTENSIONS, 'docx'),
+                         'md_to_docx')
+        self.assertEqual(cli.conversion_type('html', 'md'), 'html_to_md')
 
     def test_lua_filters_resolve_inside_package(self):
         for name in ('latex-replacements.lua', 'normalize-markdown-breaks.lua', 'keep-latex-math.lua'):

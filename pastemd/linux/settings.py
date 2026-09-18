@@ -38,6 +38,10 @@ DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True
                                 'preserve_prewrap_newlines': True},
             'pandoc_request_headers': [DEFAULT_UA],
             'pandoc_filters': [],
+            # 按转换类型配置的过滤器（对齐上游 pandoc_filters_by_conversion）：
+            # 键为 md_to_docx / html_to_docx / md_to_md / html_to_md /
+            # md_to_latex / html_to_latex / md_to_html / html_to_html
+            'pandoc_filters_by_conversion': {},
             # 可扩展工作流（应用扩展规则），结构与上游 extensible_workflows 一致
             'extensible_workflows': {key: {'enabled': value.get('enabled', True),
                                            'apps': list(value.get('apps', []))}
@@ -106,6 +110,14 @@ def load_settings():
             if isinstance(saved_formatting, dict) else default
         clean_formatting[key] = value if isinstance(value, bool) else default
     result['html_formatting'] = clean_formatting
+    saved_by_conversion = result.get('pandoc_filters_by_conversion')
+    clean_by_conversion = {}
+    if isinstance(saved_by_conversion, dict):
+        for key, value in saved_by_conversion.items():
+            entries = _string_list(value)
+            if entries and isinstance(key, str):
+                clean_by_conversion[key] = entries
+    result['pandoc_filters_by_conversion'] = clean_by_conversion
     return result
 
 

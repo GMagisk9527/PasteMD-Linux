@@ -147,7 +147,31 @@ def _filter_args(options):
     return args
 
 
-def _stage_filter_args(reader, options):
+def conversion_type(reader, target):
+    """对齐上游的转换类型名：md/html 为源，docx/md/latex/html 为目标。"""
+    source = 'md' if reader.startswith('markdown') else 'html'
+    return f'{source}_to_{target}'
+
+
+def _conversion_filter_args(conversion, options):
+    """按转换类型配置的过滤器（上游 pandoc_filters_by_conversion）。"""
+    filters = (options or {}).get('pandoc_filters_by_conversion') or {}
+    if not isinstance(filters, dict):
+        return []
+    entries = filters.get(conversion) or []
+    if isinstance(entries, str):
+        entries = [entries]
+    if not isinstance(entries, (list, tuple)):
+        return []
+    args = []
+    for path in entries:
+        path = str(path)
+        if path.strip():
+            args += ['--lua-filter' if path.lower().endswith('.lua') else '--filter', path]
+    return args
+
+
+def _stage_filter_args(reader, options, conversion=None):
     """Lua filters mirroring the upstream PasteMD conversion chain."""
     args = []
     if options.get('enable_latex_replacements', True):
@@ -156,7 +180,10 @@ def _stage_filter_args(reader, options):
         args += ['--lua-filter', lua_filter('normalize-markdown-breaks.lua')]
     if options.get('keep_original_formula'):
         args += ['--lua-filter', lua_filter('keep-latex-math.lua')]
-    return args + _filter_args(options)
+    args = args + _filter_args(options)
+    if conversion:
+        args += _conversion_filter_args(conversion, options)
+    return args
 
 
 def docx_writer_args(options):
@@ -189,7 +216,8 @@ def finish_docx(docx, reader, options=None):
     )
 
 
-def prepare_document(content, reader, options=None, protect_task_lists=False):
+def prepare_document(content, reader, options=None, protect_task_lists=False,
+                     conversion=None):
     options = options or {}
     env = None
     if reader.startswith('markdown'):
@@ -225,7 +253,7 @@ def prepare_document(content, reader, options=None, protect_task_lists=False):
     if env is not None:
         args += ['--lua-filter', lua_filter('semantic-html.lua')]
     document = json.loads(run(
-        args + _stage_filter_args(reader, options), content, env=env))
+        args + _stage_filter_args(reader, options, conversion), content, env=env))
     document = clean_document(document)
     document['meta'] = {}
     return json.dumps(document, ensure_ascii=False).encode('utf-8')
@@ -562,7 +590,8 @@ def main(argv=None, options=None):
                 raise RuntimeError('剪贴板内容为空。')
             raw_source = content
             content = prepare_document(content, reader, options,
-                                       protect_task_lists=(args.as_format == 'md'))
+                                       protect_task_lists=(args.as_format == 'md'),
+                                       conversion=conversion_type(reader, args.as_format))
             payload = text_clipboard_payload(raw_source, content, reader,
                                              args.as_format, options)
             set_clipboard_payload(payload)
@@ -577,7 +606,8 @@ def main(argv=None, options=None):
             content, reader = read_clipboard(args.input)
         if not content.strip():
             raise RuntimeError('剪贴板内容为空。')
-        content = prepare_document(content, reader, options)
+        content = prepare_document(content, reader, options,
+                                   conversion=conversion_type(reader, 'docx'))
         command = [pandoc_bin(), '--from', 'json']
         if not use_clipboard:
             cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'

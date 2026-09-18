@@ -56,7 +56,8 @@ class ConversionWorker(QThread):
                 if not source.strip():
                     raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
                 document = cli.prepare_document(source, reader, self.options,
-                                                protect_task_lists=(self.flow == 'md'))
+                                                protect_task_lists=(self.flow == 'md'),
+                                                conversion=cli.conversion_type(reader, self.flow))
                 payload = cli.text_clipboard_payload(source, document, reader, self.flow,
                                                      self.options)
                 token = uuid.uuid4().hex.encode('ascii')
@@ -70,7 +71,8 @@ class ConversionWorker(QThread):
                 source, reader = cli.read_clipboard(self.input_format)
             if not source.strip():
                 raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
-            document = cli.prepare_document(source, reader, self.options)
+            document = cli.prepare_document(source, reader, self.options,
+                                            conversion=cli.conversion_type(reader, 'docx'))
             if self.open_docx:
                 cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'pastemd'
                 cache.mkdir(parents=True, exist_ok=True)
@@ -307,7 +309,22 @@ class MainWindow(QMainWindow):
         self.filters_edit.setPlaceholderText('每行一个 Pandoc 过滤器路径（.lua 或可执行文件）')
         self.filters_edit.setPlainText('\n'.join(self.settings['pandoc_filters']))
         self.filters_edit.setMaximumHeight(64)
-        enhance_form.addRow('自定义过滤器', self.filters_edit)
+        enhance_form.addRow('自定义过滤器（全部流程）', self.filters_edit)
+        by_conversion = self.settings.get('pandoc_filters_by_conversion') or {}
+        self.filters_by_conversion_edits = {}
+        conversion_labels = (
+            ('md_to_docx', 'MD → DOCX'), ('html_to_docx', 'HTML → DOCX'),
+            ('md_to_md', 'MD → Markdown'), ('html_to_md', 'HTML → Markdown'),
+            ('md_to_latex', 'MD → LaTeX'), ('html_to_latex', 'HTML → LaTeX'),
+            ('md_to_html', 'MD → HTML'), ('html_to_html', 'HTML → HTML'),
+        )
+        for key, label in conversion_labels:
+            edit = QPlainTextEdit()
+            edit.setPlaceholderText(f'{label}：每行一个过滤器路径（留空不启用）')
+            edit.setPlainText('\n'.join(by_conversion.get(key) or []))
+            edit.setMaximumHeight(44)
+            enhance_form.addRow(f'过滤器（{label}）', edit)
+            self.filters_by_conversion_edits[key] = edit
         self.headers_edit = QPlainTextEdit()
         self.headers_edit.setPlaceholderText('每行一条，例如 User-Agent: Mozilla/5.0 …（抓取远程图片时使用）')
         self.headers_edit.setPlainText('\n'.join(self.settings['pandoc_request_headers']))
@@ -496,6 +513,10 @@ class MainWindow(QMainWindow):
             'reference_docx': self.reference_edit.text().strip() or None,
             'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
                                if line.strip()],
+            'pandoc_filters_by_conversion': {
+                key: [line.strip() for line in edit.toPlainText().splitlines() if line.strip()]
+                for key, edit in self.filters_by_conversion_edits.items()
+                if edit.toPlainText().strip()},
             'pandoc_request_headers': [line.strip() for line in self.headers_edit.toPlainText().splitlines()
                                        if line.strip()],
             'extensible_workflows': {
