@@ -1,5 +1,9 @@
 # PasteMD Linux
 
+[![CI](https://github.com/GMagisk9527/PasteMD-Linux/actions/workflows/ci.yml/badge.svg)](https://github.com/GMagisk9527/PasteMD-Linux/actions/workflows/ci.yml)
+[![Release](https://github.com/GMagisk9527/PasteMD-Linux/actions/workflows/release.yml/badge.svg)](https://github.com/GMagisk9527/PasteMD-Linux/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/GMagisk9527/PasteMD-Linux)](https://github.com/GMagisk9527/PasteMD-Linux/releases/latest)
+
 PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正文转换后粘贴到 WPS。公式通过 WPS 原生 DOCX 剪贴板传递，在 `.docx` 文档中可以继续编辑。
 
 > 本项目是 [RICHQAQ/PasteMD](https://github.com/RICHQAQ/PasteMD) 的 Linux 专用 Fork。原项目由 RICHQAQ 及其贡献者开发；本仓库保留原许可证、提交历史和版权归属。Linux 适配由 GMagisk9527 维护。更多信息见 [NOTICE.md](NOTICE.md)。
