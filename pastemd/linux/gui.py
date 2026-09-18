@@ -74,10 +74,7 @@ class ConversionWorker(QThread):
             document = cli.prepare_document(source, reader, self.options,
                                             conversion=cli.conversion_type(reader, 'docx'))
             if self.open_docx:
-                cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'pastemd'
-                cache.mkdir(parents=True, exist_ok=True)
-                fd, name = tempfile.mkstemp(prefix='paste-', suffix='.docx', dir=cache)
-                os.close(fd)
+                name = cli.docx_output_path(self.options)
                 try:
                     docx = cli.run([cli.pandoc_bin(), '--from', 'json'] + cli.docx_writer_args(self.options)
                                    + ['--to', 'docx', '--output', '-'], document)
@@ -95,6 +92,17 @@ class ConversionWorker(QThread):
                 payload[CLIPBOARD_TOKEN_MIME] = token
                 cli.set_clipboard_payload(payload)
                 lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
+                if self.options.get('keep_file'):
+                    try:
+                        keep_path = cli.docx_output_path(self.options)
+                        Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
+                        self.completed.emit({'clipboard': True, 'token': token,
+                                             'lost_images': lost,
+                                             'keep_path': str(keep_path)})
+                        return
+                    except OSError as keep_error:
+                        self.failed.emit(f'文件保留失败：{keep_error}')
+                        return
                 self.completed.emit({'clipboard': True, 'token': token, 'lost_images': lost})
         except Exception as error:
             self.failed.emit(str(error))
@@ -330,6 +338,20 @@ class MainWindow(QMainWindow):
         self.headers_edit.setPlainText('\n'.join(self.settings['pandoc_request_headers']))
         self.headers_edit.setMaximumHeight(64)
         enhance_form.addRow('请求头', self.headers_edit)
+        file_form = QFormLayout()
+        self.keep_file = QCheckBox('保留生成的 DOCX 文件（默认粘贴后即弃，仅存于缓存）')
+        self.keep_file.setChecked(bool(self.settings.get('keep_file')))
+        file_form.addRow(self.keep_file)
+        save_row = QHBoxLayout()
+        self.save_dir_edit = QLineEdit(str(self.settings.get('save_dir') or ''))
+        self.save_dir_edit.setPlaceholderText('保存目录（留空使用 ~/.cache/pastemd）')
+        browse_save = QPushButton('选择…')
+        browse_save.setMaximumWidth(72)
+        browse_save.clicked.connect(self._pick_save_dir)
+        save_row.addWidget(self.save_dir_edit, 1)
+        save_row.addWidget(browse_save)
+        file_form.addRow('保存目录', save_row)
+        controls.addLayout(file_form)
         controls.addLayout(enhance_form)
         rules_form = QFormLayout()
         self.workflow_edits = {}
@@ -391,6 +413,8 @@ class MainWindow(QMainWindow):
         prepare.triggered.connect(lambda: self.convert())
         demo = menu.addAction('测试公式')
         demo.triggered.connect(lambda: self.convert(demo=True))
+        open_save = menu.addAction('打开 DOCX 保存目录')
+        open_save.triggered.connect(self._open_save_dir)
         self.tray_rule_action = menu.addAction('为此窗口建规则…')
         self.tray_rule_action.triggered.connect(self._tray_add_rule)
         self.tray_rule_action.setVisible(False)
@@ -511,6 +535,8 @@ class MainWindow(QMainWindow):
                                 'bold_first_row_to_header': self.bold_header.isChecked(),
                                 'preserve_prewrap_newlines': self.prewrap_newlines.isChecked()},
             'reference_docx': self.reference_edit.text().strip() or None,
+            'keep_file': self.keep_file.isChecked(),
+            'save_dir': self.save_dir_edit.text().strip() or None,
             'pandoc_filters': [line.strip() for line in self.filters_edit.toPlainText().splitlines()
                                if line.strip()],
             'pandoc_filters_by_conversion': {
@@ -694,6 +720,9 @@ class MainWindow(QMainWindow):
             self.report(message + lost_note, notify=True)
             return
         self.clipboard_token = result.get('token')
+        keep_note = ''
+        if result.get('keep_path'):
+            keep_note = ' 已保留文件：' + result['keep_path']
         if self.want_paste and self.target:
             self.paste_pending = True
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
@@ -705,7 +734,7 @@ class MainWindow(QMainWindow):
         elif 'rows' in result:
             self.report(f"表格已就绪（{result['rows']} 行），请在 WPS 表格中按 Ctrl+V。", notify=True)
         else:
-            self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。' + lost_note, notify=True)
+            self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。' + lost_note + keep_note, notify=True)
 
     def _try_paste(self):
         if time.monotonic() < self.paste_ready_at:
@@ -804,6 +833,21 @@ class MainWindow(QMainWindow):
                                               'DOCX 模板 (*.docx)')
         if path:
             self.reference_edit.setText(path)
+
+    def _pick_save_dir(self):
+        path = QFileDialog.getExistingDirectory(self, '选择 DOCX 保存目录',
+                                                self.save_dir_edit.text().strip() or str(Path.home()))
+        if path:
+            self.save_dir_edit.setText(path)
+
+    def _open_save_dir(self):
+        save_dir = str(self.settings.get('save_dir') or '').strip()
+        target = Path(save_dir).expanduser() if save_dir else \
+            Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'pastemd'
+        if not target.exists():
+            self.report('目录不存在：' + str(target), notify=True)
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
     def _install_launcher(self):
         try:

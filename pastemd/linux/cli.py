@@ -216,6 +216,30 @@ def finish_docx(docx, reader, options=None):
     )
 
 
+def docx_output_path(options=None):
+    """DOCX 落盘路径：save_dir 优先且带时间戳文件名，否则沿用缓存临时文件。
+
+    save_dir 不存在时会自动创建（失败则回退缓存目录，不让保存目录配置
+    阻塞转换）。
+    """
+    options = options or {}
+    save_dir = options.get('save_dir')
+    if save_dir:
+        target = Path(save_dir).expanduser()
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            target = None
+        if target is not None:
+            stamp = time.strftime('%Y%m%d-%H%M%S')
+            return target / f'pastemd-{stamp}.docx'
+    cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
+    cache.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
+    os.close(fd)
+    return Path(name)
+
+
 def prepare_document(content, reader, options=None, protect_task_lists=False,
                      conversion=None):
     options = options or {}
@@ -610,10 +634,7 @@ def main(argv=None, options=None):
                                    conversion=conversion_type(reader, 'docx'))
         command = [pandoc_bin(), '--from', 'json']
         if not use_clipboard:
-            cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
-            cache.mkdir(parents=True, exist_ok=True)
-            fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
-            os.close(fd)
+            name = docx_output_path(options)
             try:
                 docx = run(command + docx_writer_args(options)
                            + ['--to', 'docx', '--output', '-'], content)
@@ -625,7 +646,7 @@ def main(argv=None, options=None):
             print(name)
             if open_docx:
                 open_in_wps(name)
-            message = 'DOCX 已保存：' + name
+            message = 'DOCX 已保存：' + str(name)
             lost = lost_image_count(content, docx)
             if lost:
                 message += f'（注意：{lost} 张图片未能嵌入）'
@@ -639,6 +660,13 @@ def main(argv=None, options=None):
             message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'
             if lost:
                 message += f'注意：{lost} 张图片未能嵌入。'
+            if options.get('keep_file'):
+                try:
+                    keep_path = docx_output_path(options)
+                    Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
+                    message += ' 已保留文件：' + str(keep_path)
+                except OSError as keep_error:
+                    message += f'（文件保留失败：{keep_error}）'
             notify(message)
             print(message)
         return 0

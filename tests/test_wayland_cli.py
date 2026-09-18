@@ -88,6 +88,51 @@ class WaylandTests(unittest.TestCase):
                 saved = list((Path(directory) / 'pastemd').glob('*.docx'))
                 self.assertEqual(len(saved), 1)
 
+    def test_docx_output_path_prefers_save_dir_with_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, XDG_CACHE_HOME=directory):
+                path = cli.docx_output_path({'save_dir': str(Path(directory) / 'keep')})
+                self.assertEqual(path.parent, Path(directory) / 'keep')
+                self.assertRegex(path.name, r'pastemd-\d{8}-\d{6}\.docx')
+            # 缓存目录没有新文件（save_dir 命中时不再碰缓存）
+            self.assertEqual(list((Path(directory) / 'pastemd').glob('*')), [])
+        # save_dir 不可创建时回退缓存
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, XDG_CACHE_HOME=directory):
+                path = cli.docx_output_path({'save_dir': '/proc/definitely/not/writable'})
+                self.assertEqual(path.parent, Path(directory) / 'pastemd')
+
+    def test_keep_file_persists_native_docx(self):
+        expected = {'Kingsoft WPS 9.0 Format': b'docx-bytes', 'text/plain': b'plain'}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), \
+                 patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+                 patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), \
+                 patch.object(cli, 'prepare_document', return_value=b'{}'), \
+                 patch.object(cli, 'run', return_value=b'plain'), \
+                 patch.object(cli, 'native_clipboard_payload', return_value=expected), \
+                 patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload'):
+                save_dir = Path(directory) / 'keep'
+                self.assertEqual(cli.main([], options={'keep_file': True,
+                                                       'save_dir': str(save_dir)}), 0)
+                kept = list(save_dir.glob('pastemd-*.docx'))
+                self.assertEqual(len(kept), 1)
+                self.assertEqual(kept[0].read_bytes(), b'docx-bytes')
+
+    def test_keep_file_disabled_writes_nothing(self):
+        expected = {'Kingsoft WPS 9.0 Format': b'docx-bytes', 'text/plain': b'plain'}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), \
+                 patch.object(cli.shutil, 'which', return_value='/bin/tool'), \
+                 patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), \
+                 patch.object(cli, 'prepare_document', return_value=b'{}'), \
+                 patch.object(cli, 'run', return_value=b'plain'), \
+                 patch.object(cli, 'native_clipboard_payload', return_value=expected), \
+                 patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload'):
+                self.assertEqual(cli.main([], options={'keep_file': False,
+                                                       'save_dir': str(Path(directory) / 'keep')}), 0)
+                self.assertFalse((Path(directory) / 'keep').exists())
+
     def test_failed_docx_removes_partial_file(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0', XDG_CACHE_HOME=directory), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'# Hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'run', side_effect=RuntimeError('conversion failed')), patch.object(cli, 'notify'):

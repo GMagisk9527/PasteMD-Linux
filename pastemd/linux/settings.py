@@ -23,6 +23,10 @@ DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True
             # 转换增强，键名与上游 RICHQAQ/PasteMD 的 config.json 对齐
             'enable_excel': True,
             'reference_docx': None,
+            # 保留生成的 DOCX：keep_file 开启时，原生剪贴板流程在粘贴之外
+            # 额外把 DOCX 落盘到 save_dir（对齐上游 keep_file/save_dir）
+            'keep_file': False,
+            'save_dir': None,
             'keep_original_formula': False,
             'enable_latex_replacements': True,
             'fix_single_dollar_block': True,
@@ -74,7 +78,7 @@ def load_settings():
             if value is None:
                 continue
         elif default is None:
-            # reference_docx: 接受 null 或非空字符串
+            # reference_docx / save_dir: 接受 null 或非空字符串
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 continue
         elif type(value) is not type(default):
