@@ -43,7 +43,7 @@ jobs:
       - name: 安装 flatpak 与构建依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils
           flatpak remote-add --if-not-exists --user flathub \
             https://flathub.org/repo/flathub.flatpakrepo
           # 与 manifest 对齐的运行时依赖（构建走宿主 flatpak-builder CLI）
