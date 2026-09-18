@@ -200,6 +200,13 @@ class WaylandTests(unittest.TestCase):
                           '--request-header', 'User-Agent: test-agent'])
         self.assertEqual(cli.docx_writer_args({}), ['--highlight-style', 'tango'])
 
+    def test_docx_writer_args_highlight_style_configurable(self):
+        self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'default'}),
+                         ['--highlight-style', 'tango'])
+        self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'zenburn'}),
+                         ['--highlight-style', 'zenburn'])
+        self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'none'}), [])
+
     def test_stage_filters_follow_conversion_flags(self):
         options = {'pandoc_filters': ['/tmp/custom.lua', '/tmp/tool.py'],
                    'enable_latex_replacements': False, 'keep_original_formula': True}

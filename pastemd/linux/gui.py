@@ -217,6 +217,13 @@ class MainWindow(QMainWindow):
         self.auto_paste = QCheckBox('转换完成后自动粘贴到当前 WPS 文档')
         self.auto_paste.setChecked(self.settings['auto_paste'])
         settings_form.addRow(self.auto_paste)
+        self.no_app_action = QComboBox()
+        self.no_app_action.addItem('留在剪贴板，手动粘贴', 'clipboard')
+        self.no_app_action.addItem('仍粘贴到当前窗口（按文档流）', 'convert_anyway')
+        self.no_app_action.addItem('每次询问', 'ask')
+        index = self.no_app_action.findData(self.settings.get('no_app_action', 'clipboard'))
+        self.no_app_action.setCurrentIndex(max(0, index))
+        settings_form.addRow('窗口未匹配规则时', self.no_app_action)
         self.delay = QSpinBox()
         self.delay.setRange(100, 2000)
         self.delay.setSingleStep(50)
@@ -263,6 +270,15 @@ class MainWindow(QMainWindow):
         self.auto_tables = QCheckBox('表格按内容自动调整列宽（实验）')
         self.auto_tables.setChecked(self.settings['docx_auto_table_layout'])
         enhance_form.addRow(self.auto_tables)
+        self.highlight_style = QComboBox()
+        for text, value in [('Tango（默认）', 'default'), ('Pygments', 'pygments'),
+                            ('Kate', 'kate'), ('Espresso', 'espresso'),
+                            ('Zenburn', 'zenburn'), ('单色', 'monochrome'),
+                            ('关闭高亮', 'none')]:
+            self.highlight_style.addItem(text, value)
+        self.highlight_style.setCurrentIndex(
+            self.highlight_style.findData(self.settings.get('code_highlight_style', 'default')))
+        enhance_form.addRow('代码块高亮配色', self.highlight_style)
         formatting = self.settings['html_formatting']
         self.font_semantic = QCheckBox('恢复样式表中的加粗/斜体（WPS 表格、网页复制）')
         self.font_semantic.setChecked(formatting.get('css_font_to_semantic', True))
@@ -357,6 +373,10 @@ class MainWindow(QMainWindow):
         prepare.triggered.connect(lambda: self.convert())
         demo = menu.addAction('测试公式')
         demo.triggered.connect(lambda: self.convert(demo=True))
+        self.tray_rule_action = menu.addAction('为此窗口建规则…')
+        self.tray_rule_action.triggered.connect(self._tray_add_rule)
+        self.tray_rule_action.setVisible(False)
+        menu.aboutToShow.connect(self._refresh_tray_rule_action)
         menu.addSeparator()
         about = menu.addAction('关于与许可证')
         about.triggered.connect(self._show_about)
@@ -367,6 +387,27 @@ class MainWindow(QMainWindow):
         self.tray_menu = menu
         self.tray.activated.connect(lambda reason: self.show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
         self.tray.show()
+
+    def _refresh_tray_rule_action(self):
+        """托盘菜单打开时探测焦点窗口；WPS 内建窗口之外的都给建规则入口。"""
+        if not getattr(self, 'tray_rule_action', None):
+            return
+        try:
+            app = self.focused_app()
+        except Exception:
+            app = None
+        if app and len(app) > 1 and app[2] not in ('writer', 'spreadsheet', 'presentation'):
+            caption = str(app[1]).strip() or str(app[3] or '当前窗口')
+            self.tray_rule_action.setText(f'为「{caption[:32]}」建规则…')
+            self._tray_app = app
+            self.tray_rule_action.setVisible(True)
+        else:
+            self.tray_rule_action.setVisible(False)
+
+    def _tray_add_rule(self):
+        app = getattr(self, '_tray_app', None)
+        if app:
+            self._add_rule_for_window(app)
 
     def _update_instructions(self):
         key = self.settings['hotkey']
@@ -436,6 +477,8 @@ class MainWindow(QMainWindow):
             'hotkey_enabled': self.hotkey_enabled.isChecked(), 'auto_paste': self.auto_paste.isChecked(),
             'input_format': self.input_format.currentData(), 'paste_delay_ms': self.delay.value(),
             'notifications': self.notifications.isChecked(),
+            'no_app_action': self.no_app_action.currentData(),
+            'code_highlight_style': self.highlight_style.currentData(),
             'enable_excel': self.excel_enabled.isChecked(),
             'keep_original_formula': self.keep_formula.isChecked(),
             'enable_latex_replacements': self.latex_fix.isChecked(),
@@ -537,8 +580,23 @@ class MainWindow(QMainWindow):
                 if ext:
                     self.flow = ext
                 else:
-                    self.target = None
-                    self.report('当前窗口没有匹配的粘贴规则，内容将留在剪贴板供手动粘贴。')
+                    action = self.settings.get('no_app_action', 'clipboard')
+                    if action == 'ask':
+                        choice = self._ask_no_app_action(app)
+                        if choice == 'rule':
+                            self.target = None
+                            self.want_paste = False
+                            self._add_rule_for_window(app)
+                            return
+                        action = choice or 'clipboard'
+                    if action == 'convert_anyway':
+                        # 保留 target 以自动粘贴，但未匹配窗口恒按文档流转换
+                        self.flow = 'doc'
+                        self.report('当前窗口未匹配规则，将按文档流粘贴。'
+                                    '可在设置中修改该行为。')
+                    else:
+                        self.target = None
+                        self.report('当前窗口没有匹配的粘贴规则，内容将留在剪贴板供手动粘贴。')
         self.want_paste = paste_now and self.target is not None
         self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx,
                                        options=dict(self.settings), flow=self.flow, parent=self)
@@ -560,6 +618,44 @@ class MainWindow(QMainWindow):
             self._set_busy(False)
         if self.pending_quit:
             self.request_quit()
+
+    def _ask_no_app_action(self, app):
+        """未匹配规则时的每次询问对话框；返回 'clipboard'/'convert_anyway'/'rule'/None。"""
+        caption = app[1] if len(app) > 1 else ''
+        box = QMessageBox(self)
+        box.setWindowTitle('PasteMD Linux')
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(f'窗口「{caption}」没有匹配的粘贴规则。')
+        paste_button = box.addButton('仍粘贴（按文档流）', QMessageBox.ButtonRole.AcceptRole)
+        clip_button = box.addButton('留在剪贴板', QMessageBox.ButtonRole.RejectRole)
+        rule_button = box.addButton('为此窗口建规则…', QMessageBox.ButtonRole.ActionRole)
+        box.setDefaultButton(clip_button)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is rule_button:
+            return 'rule'
+        if clicked is paste_button:
+            return 'convert_anyway'
+        if clicked is clip_button:
+            return 'clipboard'
+        return None
+
+    def _add_rule_for_window(self, app):
+        """把当前窗口写进 md 流程的规则编辑框并打开设置页让用户确认流程。"""
+        caption = str(app[1] if len(app) > 1 else '').replace('|', '/').strip()
+        resource_class = str(app[3] if len(app) > 3 else '').replace('|', '/').strip()
+        if not resource_class:
+            self.report('无法识别窗口的 WM_CLASS，请改用设置页的「从窗口拾取…」。', notify=True)
+            return
+        name = caption or resource_class
+        if self.workflow_edits:
+            enabled, edit = next(iter(self.workflow_edits.values()))
+            line = f'{name} | {resource_class} | '
+            current = edit.toPlainText().rstrip('\n')
+            edit.setPlainText((current + '\n' if current else '') + line)
+        self.show_window()
+        self.report(f'已把「{name}」加入规则（md 流程），请在设置页调整归属或标题正则后保存。',
+                    notify=True)
 
     def _converted(self, result):
         if self.pending_quit or self.closing:

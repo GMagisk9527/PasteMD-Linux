@@ -417,6 +417,99 @@ class DesktopTests(unittest.TestCase):
                          {'enabled': True, 'apps': []})
         self.assertNotIn('file', loaded['extensible_workflows'])
 
+    def test_settings_no_app_action_and_highlight_sanitize(self):
+        config = settings.config_file()
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({'no_app_action': 'whatever',
+                                      'code_highlight_style': 'neon'}))
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['no_app_action'], 'clipboard')
+        self.assertEqual(loaded['code_highlight_style'], 'default')
+        config.write_text(json.dumps({'no_app_action': 'ask',
+                                      'code_highlight_style': 'zenburn'}))
+        loaded = settings.load_settings()
+        self.assertEqual(loaded['no_app_action'], 'ask')
+        self.assertEqual(loaded['code_highlight_style'], 'zenburn')
+
+    def test_gui_no_app_action_control_roundtrip(self):
+        window = self.window()
+        try:
+            index = window.no_app_action.findData('convert_anyway')
+            window.no_app_action.setCurrentIndex(index)
+            window.save()
+            reloaded = settings.load_settings()
+            self.assertEqual(reloaded['no_app_action'], 'convert_anyway')
+            index = window.highlight_style.findData('none')
+            window.highlight_style.setCurrentIndex(index)
+            window.save()
+            self.assertEqual(settings.load_settings()['code_highlight_style'], 'none')
+        finally:
+            window.close()
+
+    def test_gui_convert_anyway_keeps_target_without_match(self):
+        window = self.window()
+        try:
+            window.smoke = False
+            window.x11 = Mock()
+            window.x11.focused_app.return_value = (11, '记事本', 'editor', 'gedit')
+            window.settings['no_app_action'] = 'convert_anyway'
+            with patch('pastemd.linux.gui.ConversionWorker') as worker:
+                window.convert(paste=True)
+            self.assertEqual(window.flow, 'doc')
+            self.assertEqual(window.target, (11, '记事本', 'editor', 'gedit'))
+            self.assertTrue(window.want_paste)
+            worker.assert_called_once()
+        finally:
+            window.close()
+
+    def test_gui_clipboard_action_drops_target(self):
+        window = self.window()
+        try:
+            window.smoke = False
+            window.x11 = Mock()
+            window.x11.focused_app.return_value = (11, '记事本', 'editor', 'gedit')
+            window.settings['no_app_action'] = 'clipboard'
+            with patch('pastemd.linux.gui.ConversionWorker'):
+                window.convert(paste=True)
+            self.assertIsNone(window.target)
+            self.assertFalse(window.want_paste)
+        finally:
+            window.close()
+
+    def test_gui_tray_rule_action_refreshes_with_focus(self):
+        window = self.window()
+        try:
+            window.smoke = True  # 无托盘实体，直接测 refresh 逻辑
+            window.tray_rule_action = Mock()
+            window.x11 = Mock()
+            window.x11.focused_app.return_value = (11, '语雀笔记', 'browser', 'yuque')
+            window._refresh_tray_rule_action()
+            window.tray_rule_action.setVisible.assert_called_with(True)
+            self.assertEqual(getattr(window, '_tray_app', None),
+                             (11, '语雀笔记', 'browser', 'yuque'))
+            window.x11.focused_app.return_value = (11, '文档', 'writer')
+            window._refresh_tray_rule_action()
+            window.tray_rule_action.setVisible.assert_called_with(False)
+        finally:
+            window.close()
+
+    def test_gui_ask_action_offers_add_rule(self):
+        window = self.window()
+        try:
+            window.smoke = False
+            window.x11 = Mock()
+            window.x11.focused_app.return_value = (11, '语雀笔记', 'browser', 'yuque')
+            window.settings['no_app_action'] = 'ask'
+            with patch.object(window, '_ask_no_app_action', return_value='rule') as ask, \
+                 patch.object(window, '_add_rule_for_window') as add_rule, \
+                 patch('pastemd.linux.gui.ConversionWorker') as worker:
+                window.convert(paste=True)
+            ask.assert_called_once()
+            add_rule.assert_called_once()
+            worker.assert_not_called()
+        finally:
+            window.close()
+
     def test_settings_html_formatting_roundtrip_and_sanitize(self):
         values = dict(settings.DEFAULTS)
         values['html_formatting'] = {'css_font_to_semantic': False,

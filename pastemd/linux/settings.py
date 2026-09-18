@@ -13,6 +13,13 @@ DEFAULT_UA = ('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 DEFAULTS = {'hotkey': 'Ctrl+Shift+B', 'hotkey_enabled': True, 'auto_paste': True,
             'input_format': 'auto', 'paste_delay_ms': 250, 'notifications': True,
+            # 焦点窗口未匹配任何应用规则时的行为：
+            # clipboard=留在剪贴板供手动粘贴（默认）；convert_anyway=仍自动
+            # 粘贴（恒按文档流转换）；ask=每次询问
+            'no_app_action': 'clipboard',
+            # 代码块语法高亮配色（docx writer 的 --highlight-style；
+            # default=历史行为即 tango，none=纯文本不加 token 样式）
+            'code_highlight_style': 'default',
             # 转换增强，键名与上游 RICHQAQ/PasteMD 的 config.json 对齐
             'enable_excel': True,
             'reference_docx': None,
@@ -73,6 +80,12 @@ def load_settings():
         result['input_format'] = 'auto'
     if result['horizontal_rule_style'] not in ('default', 'paragraph_border'):
         result['horizontal_rule_style'] = 'default'
+    if result['no_app_action'] not in ('clipboard', 'convert_anyway', 'ask'):
+        result['no_app_action'] = 'clipboard'
+    if result['code_highlight_style'] not in ('default', 'none', 'tango', 'pygments',
+                                              'kate', 'monochrome', 'espresso',
+                                              'zenburn'):
+        result['code_highlight_style'] = 'default'
     result['paste_delay_ms'] = max(100, min(2000, result['paste_delay_ms']))
     saved_workflows = result.get('extensible_workflows')
     clean = {}

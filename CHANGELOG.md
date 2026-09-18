@@ -1,5 +1,28 @@
 # 更新日志
 
+## 0.5.0-linux（2026-09-18）
+
+### 新增
+
+- **无规则窗口行为可配**（`no_app_action`）：焦点窗口未匹配任何应用规则时，
+  可选「留在剪贴板手动粘贴（默认）/ 仍按文档流粘贴 / 每次询问」；询问
+  对话框支持一键"为此窗口建规则"，衔接设置页规则编辑框
+- **托盘规则入口**：托盘菜单实时探测焦点窗口，非 WPS 窗口直接给
+  「为「窗口标题」建规则…」，点一下写进规则并打开设置页确认
+- **代码块高亮配色可配**（`code_highlight_style`）：Tango（默认，与此前
+  行为一致）/ Pygments / Kate / Espresso / Zenburn / 单色 / 关闭，对应
+  docx writer 的 `--highlight-style`
+
+### 工程改进（对用户透明）
+
+- 发版走 GitHub Actions：推 tag 自动构建 AppImage + Flatpak 双包并创建
+  Release（发布说明从 CHANGELOG 对应小节提取，缺小节即失败）；已用
+  rc1-rc3 完成实弹演练
+- CI 增加 ruff + shellcheck 静态检查、Lua 黄金 fixtures（锁定过滤器
+  行为，防 pandoc 升级回归，仅认官方 pandoc 3.7.0.2）
+- 版本号单一来源（`pastemd/__init__.py`），打包脚本自动派生
+- 真机冒烟套件收编进 `scripts/smoke/`
+
 ## 0.4.0-linux（2026-09-17）
 
 ### 新增

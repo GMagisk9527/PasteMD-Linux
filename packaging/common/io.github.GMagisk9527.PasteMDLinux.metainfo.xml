@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.0" date="2026-09-18">
+      <description>
+        <p>无规则窗口行为可配置（留剪贴板/仍粘贴/每次询问+一键建规则）、托盘直达的窗口规则入口、代码块高亮配色可选。</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-09-17">
       <description>
         <p>应用规则拾取器（从运行中的窗口一键生成规则+常用预设）、pre-wrap 换行还原、Obsidian 公式恢复；修复多实例下 KWin 焦点检测失效。</p>

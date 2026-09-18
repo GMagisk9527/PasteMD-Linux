@@ -162,7 +162,12 @@ def _stage_filter_args(reader, options):
 def docx_writer_args(options):
     """Args appended to `pandoc --from json` DOCX conversions."""
     options = options or {}
-    args = ['--highlight-style', 'tango']
+    args = []
+    style = options.get('code_highlight_style') or 'default'
+    if style == 'default':
+        style = 'tango'  # 历史行为：默认即 tango 配色
+    if style != 'none':
+        args += ['--highlight-style', style]
     reference = options.get('reference_docx')
     if reference:
         args += ['--reference-doc', str(reference)]
