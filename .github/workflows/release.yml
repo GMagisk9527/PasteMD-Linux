@@ -69,12 +69,13 @@ jobs:
       - name: 从 CHANGELOG 提取发布说明
         run: |
           version="${GITHUB_REF_NAME#v}-linux"
-          awk -v header="## ${version}" '
-            $0 ~ "^## " header { found = 1; next }
+          # header 不含 "## " 前缀；用 index() 做字面前缀匹配（版本号里的
+          # "." 在动态正则中虽可接受，但字符串匹配不受任何转义影响）
+          awk -v header="${version}" '
+            index($0, "## " header) == 1 { found = 1; next }
             /^## / { found = 0 }
             found { print }
           ' CHANGELOG.md | sed -e '/./,$!d' -e '${/^$/d}' > changelog-section.md
-          # 标题行只有 22 字节左右；正文缺失说明 CHANGELOG 没写该版本小节
           if [[ ! -s changelog-section.md ]]; then
             echo "CHANGELOG.md 中缺少 ${version} 小节，拒绝静默发布空说明" >&2
             exit 1
