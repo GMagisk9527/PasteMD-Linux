@@ -69,6 +69,9 @@ class X11Paste:
     TITLE_SPREADSHEET = re.compile(r'\.(xls\w*|csv|et)(?![a-z0-9])')
     TITLE_WRITER = re.compile(r'\.(docx?|wps|rtf)(?![a-z0-9])')
     TITLE_PRESENTATION = re.compile(r'\.(ppt\w*|dps|ppsx)(?![a-z0-9])')
+    TITLE_EN_SPREADSHEET = re.compile(r'\b(?:sheet|workbook)\s*\d*\b')
+    TITLE_EN_PRESENTATION = re.compile(r'\b(?:presentation|slideshow)\s*\d*\b')
+    TITLE_EN_WRITER = re.compile(r'\b(?:document|untitled)\s*\d*\b')
 
     @staticmethod
     def classify_title(title):
@@ -77,22 +80,31 @@ class X11Paste:
 
         WPS Linux 新建空白文档的默认标题是「文字文稿N / 演示文稿N /
         表格N」（无扩展名），且统一带「 - WPS Office」后缀；表格另有
-        「工作簿」变体。不能把裸「WPS Office」当 writer——表格/演示
-        窗口也带同样的后缀，所以先查表格/演示特征，最后才用文稿序号
-        兜底 writer。
+        「工作簿」变体。英文界面对应 Sheet/Workbook、Presentation、
+        Document/Untitled。不能把裸「WPS Office」当 writer——表格/演示
+        窗口也带同样的后缀，所以先查表格/演示特征，再用文稿序号和
+        「 - WPS Office」后缀兜底 writer（改名、未保存、无扩展名文档）。
         """
         text = title.decode('utf-8', 'replace') if isinstance(title, bytes) else title
         text = text.lower()
         if (X11Paste.TITLE_SPREADSHEET.search(text) or 'wps表格' in text
                 or '新建表格' in text or '工作簿' in text or '表格文稿' in text
+                or X11Paste.TITLE_EN_SPREADSHEET.search(text)
                 or re.search(r'(?<![文演])表格\s*\d*(\s*-|$)', text)):
             return 'spreadsheet'
         if (X11Paste.TITLE_PRESENTATION.search(text) or 'wps演示' in text
-                or '新建演示' in text or '演示文稿' in text):
+                or '新建演示' in text or '演示文稿' in text
+                or X11Paste.TITLE_EN_PRESENTATION.search(text)):
             return 'presentation'
         if (X11Paste.TITLE_WRITER.search(text) or 'wps文字' in text
                 or '新建文档' in text or '新建文字' in text
-                or re.search(r'文字\s*文稿\s*\d*', text) or '文档文稿' in text):
+                or '未命名' in text or X11Paste.TITLE_EN_WRITER.search(text)
+                or re.search(r'文字\s*文稿\s*\d*', text) or '文档文稿' in text
+                or re.search(r'文档\s*\d+', text)):
+            return 'writer'
+        # 统一套件窗口：已排除表格/演示后，带「 - WPS Office」的标题视为文字。
+        stripped = text.strip()
+        if stripped.endswith('wps office') and stripped != 'wps office':
             return 'writer'
         return None
 

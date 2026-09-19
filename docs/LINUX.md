@@ -115,9 +115,9 @@ python3 scripts/pastemd-wayland.py --clipboard
 
 ## 智能表格粘贴（实验，适配 WPS 表格）
 
-热键触发时若前台是 WPS 表格（WM_CLASS 为 `et`/`ket`），PasteMD 会改走表格流程：
+热键触发时若前台是 WPS 表格（独立进程 `et`/`ket`，或统一套件 `wpsoffice` 且标题判定为表格），PasteMD 会改走表格流程：
 
-1. 正常复制 Markdown 表格，或包含表格的网页内容。
+1. 正常复制 Markdown 表格，或包含表格的网页/AI 内容（允许「标题 + 段落 + 表格」，取第一张表）。
 2. 在 WPS 表格中把光标放到目标位置，按热键。
 3. PasteMD 解析表格（纯文本优先；只有 HTML 时用 Pandoc 转成 Markdown 再解析），
    以 `text/html` 表格加 `text/plain` TSV 兜底写入剪贴板，并自动粘贴。
@@ -148,7 +148,7 @@ python3 scripts/pastemd-wayland.py --table
 - `html_formatting.css_font_to_semantic`：恢复样式表 `<style>` 里 class 定义的加粗/斜体
   （WPS/Excel 复制的表格常用；默认开）。删除线 `<s>/<strike>` 由 Pandoc 原生支持，无需开关。
 - `html_formatting.bold_first_row_to_header`：表格首行全加粗时提升为真表头（实验，默认关）。
-- `enable_excel`：热键时前台是 WPS 表格（`et`/`ket`）则自动改用表格粘贴流程（默认开，见"智能表格粘贴"）。
+- `enable_excel`：热键时前台是 WPS 表格（`et`/`ket`，或统一套件 `wpsoffice` 标题判定为表格）则自动改用表格粘贴流程（默认开，见\"智能表格粘贴\"）。
 - `reference_docx`：Pandoc 参考文档模板路径，套用自定义字体、页边距和样式。
 - `pandoc_request_headers`：抓取远程图片时的请求头（默认带浏览器 User-Agent）。
 - `pandoc_filters`：追加自定义 Pandoc 过滤器（`.lua` 或可执行文件），作用于解析阶段。
@@ -170,7 +170,10 @@ python3 scripts/pastemd-wayland.py --table
   查询激活窗口的标题和 WM_CLASS 来识别 WPS 文字/表格/演示，Flatpak 清单需要
   `--talk-name=org.kde.KWin` 与 `--own-name=io.github.GMagisk9527.PasteMDLinux`（已包含）。
   非 KDE 会话自动退回 X11 焦点查询。新版 WPS 各套件窗口类统一为 `wpsoffice`，
-  依赖 `_NET_WM_NAME` 标题中的扩展名（`.docx`/`.et` 等）区分套件。
+  依赖 `_NET_WM_NAME` 标题区分套件：扩展名（`.docx`/`.et` 等）、空白文稿名
+  （文字文稿N / 演示文稿N / 表格N、Document/Sheet/Presentation、未命名、文档N），
+  以及排除表格/演示后以 ` - WPS Office` 结尾的改名标题（兜底为文字）。
+  裸 `WPS Office`（启动器/无文档窗口）不视为文字，避免误自动粘贴。
 
 清理网页包装会丢弃其颜色、字号和页面布局。未接入上游所有网页公式恢复、图片与样式修复逻辑。
 `.wps` 格式、复杂公式、图片、版式和不同 WPS 版本仍需验证。剪贴板使用的是观测到的 WPS 原生格式，未来版本可能改变。

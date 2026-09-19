@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.2" date="2026-09-19">
+      <description>
+        <p>修复统一套件窗口改名/无扩展名文档（期末报告、文档1、未命名、Document 1 等）不被识别导致不自动粘贴；混合 Markdown（标题+段落+表格）现在能抽出第一张表。</p>
+      </description>
+    </release>
     <release version="0.6.1" date="2026-09-19">
       <description>
         <p>修复 AppImage 在 Fedora 上按热键崩溃（剥离捆绑的 X11/xcb/xkb 库，避免与系统库混载段错误）；修复 WPS 新建空白文档（文字文稿N/演示文稿N/表格N）不被识别导致不自动粘贴的问题。</p>

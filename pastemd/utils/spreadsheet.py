@@ -30,34 +30,69 @@ def _split_table_cells(line: str) -> List[str]:
     return cells
 
 
+def _is_table_separator(line: str) -> bool:
+    """GFM 表格分隔行：`|---|`、`---|---`、`:---:`；裸 `---` 是水平线。"""
+    return bool(line) and set(line) <= set('|-: \t') and '-' in line
+
+
+def _is_table_row(line: str) -> bool:
+    return bool(line) and '|' in line
+
+
+def _row_cells(line: str) -> List[str]:
+    cells = _split_table_cells(line)
+    if cells and cells[0] == '':
+        cells = cells[1:]
+    if cells and cells[-1] == '':
+        cells = cells[:-1]
+    return cells
+
+
 def parse_markdown_table(md_text: str) -> Optional[List[List[str]]]:
-    """解析 Markdown 表格为二维数组；不是表格时返回 None。"""
+    """解析 Markdown 表格为二维数组；不是表格时返回 None。
+
+    允许表格前后有标题、段落等非表格文字（AI 复制常见「说明 + 表格」），
+    取第一张表。空行结束当前表，避免把后文第二张表拼进来。
+    """
     lines = md_text.strip().split('\n')
     if len(lines) < 2:
         return None
-    table_data = []
-    separator_found = False
-    for line in lines:
-        line = line.strip()
-        if not line:
+    i = 0
+    n = len(lines)
+    while i < n:
+        header_line = lines[i].strip()
+        if not header_line:
+            i += 1
             continue
-        if not (line.startswith('|') or line.endswith('|') or '|' in line):
-            if separator_found:
-                break
-            return None
-        if set(line) <= set('|-: \t') and '-' in line:
-            separator_found = True
-            continue
-        cells = _split_table_cells(line)
-        if cells and cells[0] == '':
-            cells = cells[1:]
-        if cells and cells[-1] == '':
-            cells = cells[:-1]
-        if cells:
-            table_data.append(cells)
-    if not separator_found or not table_data:
-        return None
-    return table_data
+        j = i + 1
+        while j < n and not lines[j].strip():
+            j += 1
+        if j >= n:
+            break
+        sep_line = lines[j].strip()
+        if _is_table_row(header_line) and _is_table_separator(sep_line):
+            header = _row_cells(header_line)
+            if not header:
+                i += 1
+                continue
+            table_data = [header]
+            k = j + 1
+            while k < n:
+                row = lines[k].strip()
+                if not row:
+                    break
+                if _is_table_separator(row):
+                    k += 1
+                    continue
+                if not _is_table_row(row):
+                    break
+                cells = _row_cells(row)
+                if cells:
+                    table_data.append(cells)
+                k += 1
+            return table_data
+        i += 1
+    return None
 
 
 class TextSegment:

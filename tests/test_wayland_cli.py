@@ -391,6 +391,32 @@ class WaylandTests(unittest.TestCase):
         self.assertIsNone(parse_markdown_table('没有表格的文本'))
         self.assertIsNone(parse_markdown_table('| 只有表头 |'))
 
+    def test_markdown_table_extracts_first_table_from_mixed_text(self):
+        from pastemd.utils.spreadsheet import parse_markdown_table
+        mixed = (
+            '# 期末成绩说明\n'
+            '\n'
+            '下面是第一张表。\n'
+            '\n'
+            '| 姓名 | 分数 |\n'
+            '|---|---|\n'
+            '| 张三 | 90 |\n'
+            '| 李四 | 85 |\n'
+            '\n'
+            '后面还有一段话。\n'
+            '\n'
+            '| 另一张 | 表 |\n'
+            '|---|---|\n'
+            '| a | b |\n'
+        )
+        self.assertEqual(
+            parse_markdown_table(mixed),
+            [['姓名', '分数'], ['张三', '90'], ['李四', '85']])
+        self.assertIsNone(parse_markdown_table('只有标题和段落\n\n没有表格'))
+        payload, rows = cli.table_clipboard_payload(mixed)
+        self.assertEqual(rows, 3)
+        self.assertIn(b'<table>', payload['text/html'])
+
     def test_markdown_table_escape_semantics(self):
         from pastemd.utils.spreadsheet import parse_markdown_table
         # \| 是字面竖线

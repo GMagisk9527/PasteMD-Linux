@@ -305,6 +305,23 @@ class DesktopTests(unittest.TestCase):
         self.assertIsNone(classify(['wpsoffice'], 'WPS Office'))
         self.assertIsNone(classify(['wpsoffice'], ''))
 
+    def test_renamed_and_english_blank_document_titles(self):
+        """改名/无扩展名、英文空白文档仍按套件分类；裸启动器标题除外。"""
+        classify = X11Paste.classify
+        self.assertEqual(classify(['wpsoffice'], '期末报告 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '文档1 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '未命名 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], 'Document 1 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], 'Untitled - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], 'Sheet1 - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], 'Workbook 2 - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], 'Presentation 1 - WPS Office'), 'presentation')
+        self.assertEqual(classify(['wpsoffice'], 'Slideshow 2 - WPS Office'), 'presentation')
+        self.assertEqual(classify(['wpsoffice'], '成绩表.xlsx - WPS Office'), 'spreadsheet')
+        self.assertIsNone(classify(['wpsoffice'], '期末报告'))
+        self.assertIsNone(classify(['wpsoffice'], 'WPS Office'))
+        self.assertIsNone(classify(['wpsoffice'], ''))
+
     def test_spreadsheet_focus_routes_to_table_flow(self):
         window = self.window()
         window.smoke = False
