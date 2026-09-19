@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -32,6 +33,13 @@ from pastemd.utils.spreadsheet import parse_markdown_table, table_to_html, table
 
 
 MATH_EXTENSIONS = '+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash'
+
+# 转换结果附带的私有 MIME：热键再次触发时用来识别「这是我们写进去的」，
+# 并取出原文，避免把 DOCX/表格结果再当 Markdown 源。
+CLIPBOARD_TOKEN_MIME = 'application/x-pastemd-conversion-id'
+CLIPBOARD_SOURCE_MIME = 'application/x-pastemd-source'
+CLIPBOARD_READER_MIME = 'application/x-pastemd-source-reader'
+CLIPBOARD_FLOW_MIME = 'application/x-pastemd-flow'
 
 
 DEMO_MARKDOWN = r"""# PasteMD 公式粘贴测试
@@ -297,10 +305,71 @@ def run(command, data=None, env=None):
     return result.stdout
 
 
+def clipboard_types():
+    return [kind.strip() for kind in
+            run(['wl-paste', '--list-types']).decode('utf-8', 'replace').splitlines()
+            if kind.strip()]
+
+
+def _type_named(types, name):
+    want = name.lower()
+    return next((kind for kind in types
+                 if kind.partition(';')[0].strip().lower() == want), None)
+
+
+def stamp_conversion(payload, source, reader='', flow='doc', token=None):
+    """把原文和流程标记进剪贴板载荷，便于再次热键时复用或按新流程重转。"""
+    token = token or uuid.uuid4().hex.encode('ascii')
+    if isinstance(source, str):
+        source = source.encode('utf-8')
+    payload[CLIPBOARD_TOKEN_MIME] = token
+    payload[CLIPBOARD_SOURCE_MIME] = source or b''
+    payload[CLIPBOARD_READER_MIME] = (reader or '').encode('utf-8')
+    payload[CLIPBOARD_FLOW_MIME] = (flow or '').encode('utf-8')
+    return payload, token
+
+
+def read_embedded_source(types=None):
+    """若剪贴板仍是上次转换结果，返回 (原文, reader, flow)；否则 None。"""
+    try:
+        types = clipboard_types() if types is None else types
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return None
+    if not _type_named(types, CLIPBOARD_TOKEN_MIME):
+        return None
+    source_type = _type_named(types, CLIPBOARD_SOURCE_MIME)
+    if not source_type:
+        return None
+    source = run(['wl-paste', '--no-newline', '--type', source_type])
+    reader = ''
+    flow = ''
+    reader_type = _type_named(types, CLIPBOARD_READER_MIME)
+    if reader_type:
+        reader = run(['wl-paste', '--no-newline', '--type', reader_type]).decode('utf-8', 'replace')
+    flow_type = _type_named(types, CLIPBOARD_FLOW_MIME)
+    if flow_type:
+        flow = run(['wl-paste', '--no-newline', '--type', flow_type]).decode('utf-8', 'replace')
+    return source, reader, flow
+
+
+def clipboard_holds_conversion(types=None):
+    try:
+        types = clipboard_types() if types is None else types
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return False
+    return bool(_type_named(types, CLIPBOARD_TOKEN_MIME))
+
+
 def read_clipboard(input_format):
-    types = [kind.strip() for kind in
-             run(['wl-paste', '--list-types']).decode('utf-8', 'replace').splitlines()
-             if kind.strip()]
+    types = clipboard_types()
+    embedded = read_embedded_source(types)
+    if embedded is not None:
+        source, reader, _flow = embedded
+        if source.strip():
+            return source, reader or ('markdown' + MATH_EXTENSIONS)
+        raise RuntimeError('剪贴板仍是上次转换结果。请重新复制 Markdown 或网页正文后再转换。')
+    if clipboard_holds_conversion(types):
+        raise RuntimeError('剪贴板仍是上次转换结果。请重新复制 Markdown 或网页正文后再转换。')
     html = next((kind for kind in types
                  if kind.partition(';')[0].strip().lower() == 'text/html'), None)
     if input_format != 'markdown' and html:
@@ -332,9 +401,15 @@ def notify(message):
 
 def read_table_source():
     """Clipboard text for table parsing; converts HTML tables via Pandoc when needed."""
-    types = [kind.strip() for kind in
-             run(['wl-paste', '--list-types']).decode('utf-8', 'replace').splitlines()
-             if kind.strip()]
+    types = clipboard_types()
+    embedded = read_embedded_source(types)
+    if embedded is not None:
+        source, _reader, _flow = embedded
+        if source.strip():
+            return source.decode('utf-8', 'replace')
+        raise RuntimeError('剪贴板仍是上次转换结果。请重新复制 Markdown 表格后再转换。')
+    if clipboard_holds_conversion(types):
+        raise RuntimeError('剪贴板仍是上次转换结果。请重新复制 Markdown 表格后再转换。')
     plain = next((t for t in types if t.lower().startswith('text/plain')), None)
     if plain:
         return run(['wl-paste', '--no-newline', '--type', plain]).decode('utf-8', 'replace')
@@ -599,6 +674,8 @@ def main(argv=None, options=None):
         if args.table:
             source = DEMO_TABLE_MARKDOWN if args.demo else read_table_source()
             payload, rows = table_clipboard_payload(source)
+            payload, _token = stamp_conversion(
+                payload, source, 'markdown' + MATH_EXTENSIONS, 'table')
             set_clipboard_payload(payload)
             message = f'表格已就绪（{rows} 行），请在 WPS 表格中按 Ctrl+V。'
             notify(message)
@@ -618,6 +695,7 @@ def main(argv=None, options=None):
                                        conversion=conversion_type(reader, args.as_format))
             payload = text_clipboard_payload(raw_source, content, reader,
                                              args.as_format, options)
+            payload, _token = stamp_conversion(payload, raw_source, reader, args.as_format)
             set_clipboard_payload(payload)
             message = f'已按{text_clipboard_label(args.as_format)}文本写入剪贴板，在目标应用中按 Ctrl+V。'
             notify(message)
@@ -630,6 +708,7 @@ def main(argv=None, options=None):
             content, reader = read_clipboard(args.input)
         if not content.strip():
             raise RuntimeError('剪贴板内容为空。')
+        raw_source = content
         content = prepare_document(content, reader, options,
                                    conversion=conversion_type(reader, 'docx'))
         command = [pandoc_bin(), '--from', 'json']
@@ -656,6 +735,7 @@ def main(argv=None, options=None):
             plain_text = run(command + ['--to', 'plain'], content)
             payload = native_clipboard_payload(content, plain_text, options, reader)
             lost = lost_image_count(content, payload['Kingsoft WPS 9.0 Format'])
+            payload, _token = stamp_conversion(payload, raw_source, reader, 'doc')
             set_clipboard_payload(payload)
             message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'
             if lost:

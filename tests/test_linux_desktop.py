@@ -10,7 +10,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QKeySequence
-from pastemd.linux import settings
+from pastemd.linux import cli, settings
 from pastemd.linux.gui import MainWindow, start_window
 from pastemd.linux.hotkey import KdeHotkey
 from pastemd.linux.x11 import X11Paste
@@ -210,8 +210,13 @@ class DesktopTests(unittest.TestCase):
         window.clipboard_token = b'original'
         window.paste_pending = True
         window.paste_ready_at = 0
+        mime = Mock()
+        mime.data.return_value = b'other'
+        mime.hasFormat.return_value = False
+        mime.hasHtml.return_value = False
+        mime.hasText.return_value = False
         with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
-            clipboard.return_value.mimeData.return_value.data.return_value = b'other'
+            clipboard.return_value.mimeData.return_value = mime
             window._try_paste()
         window.x11.paste.assert_not_called()
         self.assertFalse(window.paste_pending)
@@ -261,6 +266,85 @@ class DesktopTests(unittest.TestCase):
         with patch('pastemd.linux.gui.ConversionWorker') as worker:
             window.convert(paste=True)
             worker.assert_not_called()
+
+    def test_repeat_hotkey_reuses_converted_clipboard(self):
+        window = self.window()
+        window._last_convert = 0
+        window.settings['auto_paste'] = True
+        window.x11 = Mock()
+        target = (10, '期末报告 - WPS Office', 'writer')
+        window.x11.focused_app.return_value = target
+        mime = Mock()
+        mime.hasFormat.side_effect = lambda name: name == cli.CLIPBOARD_TOKEN_MIME
+        mime.data.side_effect = lambda name: {
+            cli.CLIPBOARD_TOKEN_MIME: b'token1',
+            cli.CLIPBOARD_SOURCE_MIME: b'# hello',
+            cli.CLIPBOARD_READER_MIME: b'',
+            cli.CLIPBOARD_FLOW_MIME: b'doc',
+        }.get(name, b'')
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard, \
+                patch('pastemd.linux.gui.ConversionWorker') as worker:
+            clipboard.return_value.mimeData.return_value = mime
+            window.convert(paste=True)
+        worker.assert_not_called()
+        self.assertTrue(window.paste_pending)
+        self.assertEqual(window.target, target)
+        self.assertEqual(window.clipboard_token, b'token1')
+        self.assertIn('再次粘贴', window.log.toPlainText())
+
+    def test_repeat_hotkey_reuses_when_only_converted_plain_remains(self):
+        """KDE 桥接常丢掉私有 MIME，只剩上次写出的 text/plain。"""
+        window = self.window()
+        window._last_convert = 0
+        window.settings['auto_paste'] = True
+        window.x11 = Mock()
+        target = (10, '期末报告 - WPS Office', 'writer')
+        window.x11.focused_app.return_value = target
+        window.last_source = b'# hello'
+        window.last_reader = 'markdown'
+        window.last_flow = 'doc'
+        window.last_plain = 'hello converted'
+        window.clipboard_token = b'token1'
+        mime = Mock()
+        mime.hasFormat.return_value = False
+        mime.hasHtml.return_value = False
+        mime.hasText.return_value = True
+        mime.text.return_value = 'hello converted'
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard, \
+                patch('pastemd.linux.gui.ConversionWorker') as worker:
+            clipboard.return_value.mimeData.return_value = mime
+            window.convert(paste=True)
+        worker.assert_not_called()
+        self.assertTrue(window.paste_pending)
+        self.assertEqual(window.clipboard_token, b'token1')
+        self.assertIn('再次粘贴', window.log.toPlainText())
+
+    def test_repeat_hotkey_reconverts_from_source_when_flow_changes(self):
+        window = self.window()
+        window._last_convert = 0
+        window.settings['auto_paste'] = True
+        window.settings['enable_excel'] = True
+        window.x11 = Mock()
+        target = (10, '表格1 - WPS Office', 'spreadsheet')
+        window.x11.focused_app.return_value = target
+        source = b'| a | b |\n|---|---|\n| 1 | 2 |'
+        mime = Mock()
+        mime.hasFormat.side_effect = lambda name: name in (
+            cli.CLIPBOARD_TOKEN_MIME, cli.CLIPBOARD_SOURCE_MIME, cli.CLIPBOARD_FLOW_MIME)
+        mime.data.side_effect = lambda name: {
+            cli.CLIPBOARD_TOKEN_MIME: b'token1',
+            cli.CLIPBOARD_SOURCE_MIME: source,
+            cli.CLIPBOARD_READER_MIME: b'',
+            cli.CLIPBOARD_FLOW_MIME: b'doc',
+        }.get(name, b'')
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard, \
+                patch('pastemd.linux.gui.ConversionWorker') as worker:
+            clipboard.return_value.mimeData.return_value = mime
+            window.convert(paste=True)
+        worker.assert_called_once()
+        self.assertEqual(worker.call_args.kwargs['flow'], 'table')
+        self.assertEqual(worker.call_args.kwargs['source'], source)
+        self.assertIn('从原文重新转换', window.log.toPlainText())
 
     def test_wps_window_class_matches_loose_variants(self):
         for names in (['wps'], ['kwps'], ['wpsoffice'], ['com.wps.writer']):

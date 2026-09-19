@@ -4,10 +4,10 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
-import uuid
 
 from PySide6.QtCore import (QEvent, QLockFile, QTimer, Qt, QThread, Signal, QUrl)
 from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence
@@ -26,51 +26,70 @@ from .x11 import X11Paste
 from ..utils import apprules
 
 
-CLIPBOARD_TOKEN_MIME = 'application/x-pastemd-conversion-id'
+CLIPBOARD_TOKEN_MIME = cli.CLIPBOARD_TOKEN_MIME
+CLIPBOARD_SOURCE_MIME = cli.CLIPBOARD_SOURCE_MIME
+CLIPBOARD_READER_MIME = cli.CLIPBOARD_READER_MIME
+CLIPBOARD_FLOW_MIME = cli.CLIPBOARD_FLOW_MIME
 
 
 class ConversionWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, input_format, demo=False, open_docx=False, options=None, flow='doc', parent=None):
+    def __init__(self, input_format, demo=False, open_docx=False, options=None, flow='doc',
+                 parent=None, source=None, reader=None):
         super().__init__(parent)
         self.input_format, self.demo, self.open_docx = input_format, demo, open_docx
         self.options = options or {}
         self.flow = flow
+        self.source_override = source
+        self.reader_override = reader
+
+    def _load_source(self):
+        if self.source_override is not None:
+            source = self.source_override
+            if isinstance(source, str):
+                source = source.encode('utf-8')
+            reader = self.reader_override or ('markdown' + cli.MATH_EXTENSIONS)
+            return source, reader
+        if self.demo:
+            return cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
+        return cli.read_clipboard(self.input_format)
 
     def run(self):
         try:
             if self.flow == 'table':
-                payload, rows = cli.table_clipboard_payload(cli.read_table_source())
-                token = uuid.uuid4().hex.encode('ascii')
-                payload[CLIPBOARD_TOKEN_MIME] = token
-                cli.set_clipboard_payload(payload)
-                self.completed.emit({'clipboard': True, 'token': token, 'rows': rows})
-                return
-            if self.flow in cli.TEXT_FORMAT_LABELS:
-                if self.demo:
-                    source, reader = cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
+                if self.source_override is not None:
+                    raw = self.source_override
+                    source = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else raw
+                    reader = self.reader_override or ('markdown' + cli.MATH_EXTENSIONS)
+                elif self.demo:
+                    source, reader = cli.DEMO_TABLE_MARKDOWN, 'markdown' + cli.MATH_EXTENSIONS
                 else:
-                    source, reader = cli.read_clipboard(self.input_format)
-                if not source.strip():
-                    raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
+                    source, reader = cli.read_table_source(), 'markdown' + cli.MATH_EXTENSIONS
+                payload, rows = cli.table_clipboard_payload(source)
+                payload, token = cli.stamp_conversion(payload, source, reader, 'table')
+                cli.set_clipboard_payload(payload)
+                source_bytes = source if isinstance(source, bytes) else source.encode('utf-8')
+                self.completed.emit({'clipboard': True, 'token': token, 'rows': rows,
+                                     'source': source_bytes, 'reader': reader, 'flow': 'table',
+                                     'plain': payload['text/plain'].decode('utf-8', 'replace')})
+                return
+            source, reader = self._load_source()
+            if not source.strip():
+                raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
+            if self.flow in cli.TEXT_FORMAT_LABELS:
                 document = cli.prepare_document(source, reader, self.options,
                                                 protect_task_lists=(self.flow == 'md'),
                                                 conversion=cli.conversion_type(reader, self.flow))
                 payload = cli.text_clipboard_payload(source, document, reader, self.flow,
                                                      self.options)
-                token = uuid.uuid4().hex.encode('ascii')
-                payload[CLIPBOARD_TOKEN_MIME] = token
+                payload, token = cli.stamp_conversion(payload, source, reader, self.flow)
                 cli.set_clipboard_payload(payload)
-                self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow})
+                self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow,
+                                     'source': source, 'reader': reader, 'flow': self.flow,
+                                     'plain': payload['text/plain'].decode('utf-8', 'replace')})
                 return
-            if self.demo:
-                source, reader = cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
-            else:
-                source, reader = cli.read_clipboard(self.input_format)
-            if not source.strip():
-                raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
             document = cli.prepare_document(source, reader, self.options,
                                             conversion=cli.conversion_type(reader, 'docx'))
             if self.open_docx:
@@ -88,22 +107,21 @@ class ConversionWorker(QThread):
             else:
                 plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
                 payload = cli.native_clipboard_payload(document, plain, self.options, reader)
-                token = uuid.uuid4().hex.encode('ascii')
-                payload[CLIPBOARD_TOKEN_MIME] = token
+                payload, token = cli.stamp_conversion(payload, source, reader, 'doc')
                 cli.set_clipboard_payload(payload)
                 lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
+                result = {'clipboard': True, 'token': token, 'lost_images': lost,
+                          'source': source, 'reader': reader, 'flow': 'doc',
+                          'plain': plain.decode('utf-8', 'replace')}
                 if self.options.get('keep_file'):
                     try:
                         keep_path = cli.docx_output_path(self.options)
                         Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
-                        self.completed.emit({'clipboard': True, 'token': token,
-                                             'lost_images': lost,
-                                             'keep_path': str(keep_path)})
-                        return
+                        result['keep_path'] = str(keep_path)
                     except OSError as keep_error:
                         self.failed.emit(f'文件保留失败：{keep_error}')
                         return
-                self.completed.emit({'clipboard': True, 'token': token, 'lost_images': lost})
+                self.completed.emit(result)
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -119,6 +137,10 @@ class MainWindow(QMainWindow):
         self.target = None
         self.want_paste = False
         self.clipboard_token = None
+        self.last_source = None
+        self.last_reader = None
+        self.last_flow = None
+        self.last_plain = None
         self.lost_images = 0
         self.flow = 'doc'
         self.paste_deadline = 0
@@ -603,6 +625,61 @@ class MainWindow(QMainWindow):
                 return app
         return self.x11.focused_app() if self.x11 else None
 
+    def _reuse_meta(self, source, reader='', flow=''):
+        return {
+            'token': self.clipboard_token or b'reuse',
+            'source': source,
+            'reader': reader or '',
+            'flow': flow or '',
+        }
+
+    def _plain_matches(self, mime):
+        if mime is None or self.last_plain is None:
+            return False
+        if mime.hasText():
+            current = mime.text()
+        elif mime.hasFormat('text/plain'):
+            current = bytes(mime.data('text/plain') or b'').decode('utf-8', 'replace')
+        else:
+            return False
+        return current.replace('\r\n', '\n').rstrip('\n') == self.last_plain.replace('\r\n', '\n').rstrip('\n')
+
+    def _converted_clip_meta(self):
+        """上次转换结果是否还在剪贴板：优先 Qt MIME；冒烟测试不碰 wl-paste。"""
+        mime = QApplication.clipboard().mimeData()
+        if mime is not None and mime.hasFormat(CLIPBOARD_TOKEN_MIME):
+            token = bytes(mime.data(CLIPBOARD_TOKEN_MIME) or b'')
+            if token:
+                source = bytes(mime.data(CLIPBOARD_SOURCE_MIME) or b'') if mime.hasFormat(CLIPBOARD_SOURCE_MIME) else b''
+                reader = bytes(mime.data(CLIPBOARD_READER_MIME) or b'').decode('utf-8', 'replace') if mime.hasFormat(CLIPBOARD_READER_MIME) else ''
+                flow = bytes(mime.data(CLIPBOARD_FLOW_MIME) or b'').decode('utf-8', 'replace') if mime.hasFormat(CLIPBOARD_FLOW_MIME) else ''
+                return {'token': token, 'source': source, 'reader': reader, 'flow': flow}
+        # 桥接可能丢掉私有 MIME：X11 侧仍是 Kingsoft/HTML，Wayland 侧往往只剩
+        # 转换后的 text/plain。用进程内原文 + 上次写出的纯文本比对兜底。
+        if self.last_source and mime is not None:
+            kingsoft = mime.hasFormat('Kingsoft WPS 9.0 Format')
+            table_html = self.last_flow == 'table' and (mime.hasHtml() or mime.hasFormat('text/html'))
+            if kingsoft or table_html or self._plain_matches(mime):
+                return self._reuse_meta(self.last_source, self.last_reader, self.last_flow)
+        if self.smoke or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+            return None
+        try:
+            if not cli.clipboard_holds_conversion():
+                return None
+            embedded = cli.read_embedded_source()
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            return None
+        if embedded is None:
+            return None
+        source, reader, flow = embedded
+        return self._reuse_meta(source, reader, flow)
+
+    def _schedule_paste(self):
+        self.paste_pending = True
+        self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
+        self.paste_deadline = self.paste_ready_at + 3
+        self.paste_timer.start()
+
     def convert(self, paste=False, demo=False, open_docx=False):
         if self.pending_quit or self.closing:
             return
@@ -651,8 +728,38 @@ class MainWindow(QMainWindow):
                         self.target = None
                         self.report('当前窗口没有匹配的粘贴规则，内容将留在剪贴板供手动粘贴。')
         self.want_paste = paste_now and self.target is not None
+        source_override = None
+        reader_override = None
+        if not demo and not open_docx:
+            meta = self._converted_clip_meta()
+            reuse_source = (meta or {}).get('source') or self.last_source
+            reuse_reader = (meta or {}).get('reader') or self.last_reader
+            last_flow = (meta or {}).get('flow') or self.last_flow
+            if meta is not None:
+                same_flow = not last_flow or last_flow == self.flow
+                if same_flow:
+                    self.clipboard_token = meta['token']
+                    if self.want_paste and self.target:
+                        self._schedule_paste()
+                        self.report('剪贴板仍是上次转换结果，已再次粘贴。')
+                    else:
+                        self.report('剪贴板仍是上次转换结果，可直接 Ctrl+V；复制新内容后再转换。')
+                    return
+                if reuse_source and (reuse_source if isinstance(reuse_source, bytes) else reuse_source.encode()).strip():
+                    source_override = reuse_source
+                    reader_override = reuse_reader or None
+                    self.report('剪贴板仍是上次转换结果，已按当前窗口从原文重新转换。')
+                else:
+                    self.clipboard_token = meta['token']
+                    if self.want_paste and self.target:
+                        self._schedule_paste()
+                        self.report('剪贴板仍是上次转换结果，已再次粘贴。换流程请重新复制原文。')
+                    else:
+                        self.report('剪贴板仍是上次转换结果，可直接 Ctrl+V；复制新内容后再转换。')
+                    return
         self.worker = ConversionWorker(self.input_format.currentData(), demo, open_docx,
-                                       options=dict(self.settings), flow=self.flow, parent=self)
+                                       options=dict(self.settings), flow=self.flow, parent=self,
+                                       source=source_override, reader=reader_override)
         self.worker.completed.connect(self._converted)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
         self.worker.finished.connect(self._worker_finished)
@@ -724,6 +831,14 @@ class MainWindow(QMainWindow):
             self.report(message + lost_note, notify=True)
             return
         self.clipboard_token = result.get('token')
+        if result.get('source') is not None:
+            self.last_source = result['source']
+        if result.get('reader') is not None:
+            self.last_reader = result['reader']
+        if result.get('flow') is not None:
+            self.last_flow = result['flow']
+        if result.get('plain') is not None:
+            self.last_plain = result['plain']
         keep_note = ''
         if result.get('keep_path'):
             keep_note = ' 已保留文件：' + result['keep_path']
@@ -752,7 +867,19 @@ class MainWindow(QMainWindow):
                 raise RuntimeError('快捷键未松开，内容已就绪，请手动 Ctrl+V。')
             mime = QApplication.clipboard().mimeData()
             token_data = mime.data(CLIPBOARD_TOKEN_MIME) if mime is not None else None
-            if not self.clipboard_token or token_data is None or bytes(token_data) != self.clipboard_token:
+            token_ok = (self.clipboard_token and token_data is not None
+                        and bytes(token_data) == self.clipboard_token)
+            # XWayland 桥接后 Qt 不一定看得到私有 MIME；只要仍持有我们写入的
+            # WPS 原生格式或 HTML 表格，就视为结果还在，继续粘贴。
+            owned = False
+            if mime is not None:
+                if self.flow == 'table':
+                    owned = mime.hasFormat('text/html') or mime.hasHtml()
+                elif self.flow in cli.TEXT_FORMAT_LABELS:
+                    owned = mime.hasText()
+                else:
+                    owned = mime.hasFormat('Kingsoft WPS 9.0 Format')
+            if not token_ok and not owned and not self._plain_matches(mime):
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target,
                            move_cursor_to_end=bool(self.settings.get('move_cursor_to_end', True)))

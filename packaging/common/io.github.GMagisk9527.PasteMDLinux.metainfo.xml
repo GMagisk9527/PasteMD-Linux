@@ -20,7 +20,7 @@
   <releases>
     <release version="0.6.2" date="2026-09-19">
       <description>
-        <p>修复统一套件窗口改名/无扩展名文档（期末报告、文档1、未命名、Document 1 等）不被识别导致不自动粘贴；混合 Markdown（标题+段落+表格）现在能抽出第一张表。</p>
+        <p>修复统一套件窗口改名/无扩展名文档（期末报告、文档1、未命名、Document 1 等）不被识别导致不自动粘贴；混合 Markdown（标题+段落+表格）现在能抽出第一张表；热键再次触发时不再把上次转换结果当新源，同一窗口直接再粘贴。</p>
       </description>
     </release>
     <release version="0.6.1" date="2026-09-19">

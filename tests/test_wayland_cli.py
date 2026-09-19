@@ -453,6 +453,30 @@ class WaylandTests(unittest.TestCase):
         self.assertIn(b'<table>', payload['text/html'])
         self.assertEqual(payload['text/plain'].decode('utf-8'), '名称\t值\na\tb')
 
+    def test_stamp_conversion_embeds_source_and_read_prefers_it(self):
+        original = '# 原文\n'.encode()
+        payload, token = cli.stamp_conversion(
+            {'text/plain': b'result'}, original, 'markdown', 'doc')
+        self.assertEqual(payload[cli.CLIPBOARD_TOKEN_MIME], token)
+        self.assertEqual(payload[cli.CLIPBOARD_SOURCE_MIME], original)
+        self.assertEqual(payload[cli.CLIPBOARD_FLOW_MIME], b'doc')
+        types = '\n'.join([
+            cli.CLIPBOARD_TOKEN_MIME, cli.CLIPBOARD_SOURCE_MIME,
+            cli.CLIPBOARD_READER_MIME, cli.CLIPBOARD_FLOW_MIME, 'text/plain',
+        ]).encode()
+        with patch.object(cli, 'run', side_effect=[
+                types, original, b'markdown', b'doc']) as run:
+            source, reader = cli.read_clipboard('auto')
+        self.assertEqual(source, original)
+        self.assertEqual(reader, 'markdown')
+        self.assertEqual(run.call_args_list[1].args[0][3], cli.CLIPBOARD_SOURCE_MIME)
+
+    def test_read_clipboard_rejects_stale_conversion_without_source(self):
+        types = (cli.CLIPBOARD_TOKEN_MIME + '\ntext/plain\n').encode()
+        with patch.object(cli, 'run', return_value=types):
+            with self.assertRaisesRegex(RuntimeError, '上次转换结果'):
+                cli.read_clipboard('auto')
+
     def test_table_payload_rejects_non_table(self):
         with self.assertRaisesRegex(RuntimeError, '没有 Markdown 表格'):
             cli.table_clipboard_payload('普通文本，没有表格')
