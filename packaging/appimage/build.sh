@@ -100,7 +100,9 @@ find "$appdir/usr/lib/pastemd/_internal" -maxdepth 1 \( \
   -o -name 'libX11.so*' -o -name 'libX11-xcb.so*' -o -name 'libXau.so*' \
   -o -name 'libXdmcp.so*' -o -name 'libXext.so*' -o -name 'libXtst.so*' \) \
   -type f -delete
-echo "stripped bundled X11 libs: $(ls "$appdir/usr/lib/pastemd/_internal" | grep -cE '^lib(X|xcb|xkb)' || true)"
+stripped_count=$(find "$appdir/usr/lib/pastemd/_internal" -maxdepth 1 -type f \( \
+  -name 'libxkbcommon*.so*' -o -name 'libxcb*.so*' -o -name 'libX*.so*' \) | wc -l)
+echo "remaining bundled X11 libs after strip: $stripped_count"
 
 install -Dm755 "$root/packaging/appimage/AppRun" "$appdir/AppRun"
 install -Dm644 "$root/packaging/common/io.github.GMagisk9527.PasteMDLinux.desktop" \
