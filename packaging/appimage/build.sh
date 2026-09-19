@@ -89,6 +89,19 @@ wl_paste="$wl_build/src/wl-paste"
   "$root/scripts/pastemd-linux.py"
 
 mv "$root/build/appimage/pyinstaller-dist/pastemd-linux" "$appdir/usr/lib/pastemd"
+
+# 剥离 PyInstaller 收集的 X11/xcb/xkb 系统库：Fedora 构建机上它们与
+# 目标系统（同为 Fedora 时）版本一致尚可，但 bundle 混载任何非宿主
+# 编译的 libxkbcommon/libxcb 都会在 Qt xcb 键盘路径上段错误
+# （真机复现：粘贴后发 Ctrl+End 即 SIGSEGV，栈顶 libxkbcommon.so.0）。
+# 运行时统一使用目标系统的 X11 库栈。
+find "$appdir/usr/lib/pastemd/_internal" -maxdepth 1 \( \
+  -name 'libxkbcommon*.so*' -o -name 'libxcb-*.so*' -o -name 'libxcb.so.1' \
+  -o -name 'libX11.so*' -o -name 'libX11-xcb.so*' -o -name 'libXau.so*' \
+  -o -name 'libXdmcp.so*' -o -name 'libXext.so*' -o -name 'libXtst.so*' \) \
+  -type f -delete
+echo "stripped bundled X11 libs: $(ls "$appdir/usr/lib/pastemd/_internal" | grep -cE '^lib(X|xcb|xkb)' || true)"
+
 install -Dm755 "$root/packaging/appimage/AppRun" "$appdir/AppRun"
 install -Dm644 "$root/packaging/common/io.github.GMagisk9527.PasteMDLinux.desktop" \
   "$appdir/io.github.GMagisk9527.PasteMDLinux.desktop"
