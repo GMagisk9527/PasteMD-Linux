@@ -15,6 +15,9 @@ dist/
 .build-tools/
 .cache/releases/
 
+changelog-section.md
+release-notes.md
+
 .idea/
 .vscode/
 *~

@@ -56,6 +56,45 @@ class ConversionWorker(QThread):
             return cli.DEMO_MARKDOWN.encode(), 'markdown' + cli.MATH_EXTENSIONS
         return cli.read_clipboard(self.input_format)
 
+    def _emit_document(self, source, reader, extra=None):
+        extra = extra or {}
+        if isinstance(source, str):
+            source = source.encode('utf-8')
+        if not source.strip():
+            raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
+        document = cli.prepare_document(source, reader, self.options,
+                                        conversion=cli.conversion_type(reader, 'docx'))
+        if self.open_docx:
+            name = cli.docx_output_path(self.options)
+            try:
+                docx = cli.run([cli.pandoc_bin(), '--from', 'json'] + cli.docx_writer_args(self.options)
+                               + ['--to', 'docx', '--output', '-'], document)
+                docx = cli.finish_docx(docx, reader, self.options)
+                Path(name).write_bytes(docx)
+            except Exception:
+                Path(name).unlink(missing_ok=True)
+                raise
+            lost = cli.lost_image_count(document, docx)
+            self.completed.emit({'path': name, 'lost_images': lost, **extra})
+            return
+        plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
+        payload = cli.native_clipboard_payload(document, plain, self.options, reader)
+        payload, token = cli.stamp_conversion(payload, source, reader, 'doc')
+        cli.set_clipboard_payload(payload)
+        lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
+        result = {'clipboard': True, 'token': token, 'lost_images': lost,
+                  'source': source, 'reader': reader, 'flow': 'doc',
+                  'plain': plain.decode('utf-8', 'replace'), **extra}
+        if self.options.get('keep_file'):
+            try:
+                keep_path = cli.docx_output_path(self.options)
+                Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
+                result['keep_path'] = str(keep_path)
+            except OSError as keep_error:
+                self.failed.emit(f'文件保留失败：{keep_error}')
+                return
+        self.completed.emit(result)
+
     def run(self):
         try:
             if self.flow == 'table':
@@ -67,7 +106,13 @@ class ConversionWorker(QThread):
                     source, reader = cli.DEMO_TABLE_MARKDOWN, 'markdown' + cli.MATH_EXTENSIONS
                 else:
                     source, reader = cli.read_table_source(), 'markdown' + cli.MATH_EXTENSIONS
-                payload, rows = cli.table_clipboard_payload(source)
+                try:
+                    payload, rows = cli.table_clipboard_payload(source)
+                except RuntimeError:
+                    # 表格窗口但剪贴板不是表：回退文档流，避免热键直接失败。
+                    self.flow = 'doc'
+                    self._emit_document(source, reader, extra={'table_fallback': True})
+                    return
                 payload, token = cli.stamp_conversion(payload, source, reader, 'table')
                 cli.set_clipboard_payload(payload)
                 source_bytes = source if isinstance(source, bytes) else source.encode('utf-8')
@@ -90,38 +135,7 @@ class ConversionWorker(QThread):
                                      'source': source, 'reader': reader, 'flow': self.flow,
                                      'plain': payload['text/plain'].decode('utf-8', 'replace')})
                 return
-            document = cli.prepare_document(source, reader, self.options,
-                                            conversion=cli.conversion_type(reader, 'docx'))
-            if self.open_docx:
-                name = cli.docx_output_path(self.options)
-                try:
-                    docx = cli.run([cli.pandoc_bin(), '--from', 'json'] + cli.docx_writer_args(self.options)
-                                   + ['--to', 'docx', '--output', '-'], document)
-                    docx = cli.finish_docx(docx, reader, self.options)
-                    Path(name).write_bytes(docx)
-                except Exception:
-                    Path(name).unlink(missing_ok=True)
-                    raise
-                lost = cli.lost_image_count(document, docx)
-                self.completed.emit({'path': name, 'lost_images': lost})
-            else:
-                plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
-                payload = cli.native_clipboard_payload(document, plain, self.options, reader)
-                payload, token = cli.stamp_conversion(payload, source, reader, 'doc')
-                cli.set_clipboard_payload(payload)
-                lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
-                result = {'clipboard': True, 'token': token, 'lost_images': lost,
-                          'source': source, 'reader': reader, 'flow': 'doc',
-                          'plain': plain.decode('utf-8', 'replace')}
-                if self.options.get('keep_file'):
-                    try:
-                        keep_path = cli.docx_output_path(self.options)
-                        Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
-                        result['keep_path'] = str(keep_path)
-                    except OSError as keep_error:
-                        self.failed.emit(f'文件保留失败：{keep_error}')
-                        return
-                self.completed.emit(result)
+            self._emit_document(source, reader)
         except Exception as error:
             self.failed.emit(str(error))
 
@@ -837,8 +851,10 @@ class MainWindow(QMainWindow):
             self.last_reader = result['reader']
         if result.get('flow') is not None:
             self.last_flow = result['flow']
+            self.flow = result['flow']
         if result.get('plain') is not None:
             self.last_plain = result['plain']
+        fallback_note = '未识别到表格，已改走文档流。' if result.get('table_fallback') else ''
         keep_note = ''
         if result.get('keep_path'):
             keep_note = ' 已保留文件：' + result['keep_path']
@@ -847,13 +863,16 @@ class MainWindow(QMainWindow):
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
+            if fallback_note:
+                self.report(fallback_note)
         elif 'text_flow' in result:
             self.report('已按' + cli.text_clipboard_label(result['text_flow'])
                         + '文本写入剪贴板，在目标应用中按 Ctrl+V。', notify=True)
         elif 'rows' in result:
             self.report(f"表格已就绪（{result['rows']} 行），请在 WPS 表格中按 Ctrl+V。", notify=True)
         else:
-            self.report('转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。' + lost_note + keep_note, notify=True)
+            self.report((fallback_note or '转换完成，请在 WPS 的 .docx 文档中按 Ctrl+V。')
+                        + lost_note + keep_note, notify=True)
 
     def _try_paste(self):
         if time.monotonic() < self.paste_ready_at:

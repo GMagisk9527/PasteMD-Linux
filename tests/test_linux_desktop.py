@@ -11,7 +11,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QKeySequence
 from pastemd.linux import cli, settings
-from pastemd.linux.gui import MainWindow, start_window
+from pastemd.linux.gui import ConversionWorker, MainWindow, start_window
 from pastemd.linux.hotkey import KdeHotkey
 from pastemd.linux.x11 import X11Paste
 
@@ -427,6 +427,32 @@ class DesktopTests(unittest.TestCase):
             window.convert(paste=True)
         self.assertEqual(window.flow, 'doc')
         self.assertEqual(worker.call_args.kwargs['flow'], 'doc')
+
+    def test_table_worker_falls_back_to_document_without_markdown_table(self):
+        worker = ConversionWorker('auto', flow='table', source='# 只有段落\n\n没有表')
+        with patch.object(worker, '_emit_document') as emit, \
+                patch('pastemd.linux.gui.cli.table_clipboard_payload',
+                      side_effect=RuntimeError('没有 Markdown 表格')):
+            worker.run()
+        emit.assert_called_once()
+        self.assertEqual(worker.flow, 'doc')
+        self.assertEqual(emit.call_args.args[0], '# 只有段落\n\n没有表')
+        self.assertTrue(emit.call_args.kwargs['extra']['table_fallback'])
+
+    def test_table_fallback_result_switches_window_to_document_flow(self):
+        window = self.window()
+        window.flow = 'table'
+        window.want_paste = True
+        window.target = (10, '表格1 - WPS Office', 'spreadsheet')
+        window._converted({
+            'clipboard': True, 'token': b'token', 'flow': 'doc',
+            'source': b'# hi', 'reader': 'markdown', 'plain': 'hi',
+            'table_fallback': True,
+        })
+        self.assertEqual(window.flow, 'doc')
+        self.assertEqual(window.last_flow, 'doc')
+        self.assertTrue(window.paste_pending)
+        self.assertIn('未识别到表格', window.log.toPlainText())
 
     def test_writer_focus_keeps_document_flow(self):
         window = self.window()

@@ -25,7 +25,7 @@ PasteMD Linux 用于在 Fedora KDE Wayland 中，把 Markdown 或 AI 网页正�
 ## 安装
 
 先安装 WPS Linux 版。普通用户建议从
-[Releases](https://github.com/GMagisk9527/PasteMD-Linux/releases) 下载首版安装包。
+[Releases](https://github.com/GMagisk9527/PasteMD-Linux/releases/latest) 下载安装包。
 
 ### AppImage
 
