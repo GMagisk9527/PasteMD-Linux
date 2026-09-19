@@ -279,6 +279,17 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(classify(['wpp', 'wps']), 'presentation')
         self.assertIsNone(classify(['kwrite']))
         self.assertIsNone(classify(['get', 'net']))
+
+    def test_wps_default_blank_document_titles(self):
+        """WPS Linux 新建空白文档的真实标题形态（无扩展名）。"""
+        classify = X11Paste.classify
+        self.assertEqual(classify(['wpsoffice'], '文字文稿1 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '文字文稿12 - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '演示文稿1 - WPS Office'), 'presentation')
+        self.assertEqual(classify(['wpsoffice'], '表格1 - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '表格 3 - WPS Office'), 'spreadsheet')
+        self.assertEqual(classify(['wpsoffice'], '文档1.docx - WPS Office'), 'writer')
+        self.assertEqual(classify(['wpsoffice'], '主页 - Google Chrome'), None)
         self.assertIsNone(classify(['wpscloudsvr', 'qing']))
         self.assertIsNone(classify([]))
 

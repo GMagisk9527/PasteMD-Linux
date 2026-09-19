@@ -6,6 +6,8 @@ XWayland 把 X 焦点指向 1×1 代理窗口，XGetInputFocus / _NET_ACTIVE_WIN
 把结果回传给本进程注册的 DBus 对象。
 """
 import json
+import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,6 +15,11 @@ from PySide6.QtCore import QObject, QEventLoop, QTimer, Slot
 from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 
 SERVICE = 'io.github.GMagisk9527.PasteMDLinux'
+
+
+def _debug(message):
+    if os.environ.get('PASTEMD_DEBUG'):
+        print(f'[kwin] {message}', file=sys.stderr, flush=True)
 
 # 只回传激活窗口；空接口名是 Qt ExportAllSlots 对象的接收条件。
 # 服务名用 %s 占位，写入脚本时替换为实例实际注册名（可能是回退名）。
@@ -126,6 +133,7 @@ class KWinFocus:
         self._receiver.caption = ''
         self._receiver.resource_class = ''
         runner.call('run')
+        _debug(f'active_window: script {script_id} running, waiting callback...')
         # 等回调到达：分步开事件循环处理 DBus 消息，总时长受 timeout 约束。
         waited = 0
         step = 20
@@ -137,7 +145,9 @@ class KWinFocus:
         runner.call('stop')
         self._interface.call('unloadScript', name)
         if not self._receiver.arrived:
+            _debug('active_window: callback never arrived (timeout)')
             return None
+        _debug(f'active_window: got ({self._receiver.caption!r}, {self._receiver.resource_class!r})')
         return self._receiver.caption, self._receiver.resource_class
 
     def list_windows(self):

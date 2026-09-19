@@ -73,17 +73,26 @@ class X11Paste:
     @staticmethod
     def classify_title(title):
         """Suite kind from the window title; modern WPS is one wpsoffice
-        window with tabs, so only the title tells 文字/表格/演示 apart."""
+        window with tabs, so only the title tells 文字/表格/演示 apart.
+
+        WPS Linux 新建空白文档的默认标题是「文字文稿N / 演示文稿N /
+        表格N」（无扩展名），且统一带「 - WPS Office」后缀；表格另有
+        「工作簿」变体。不能把裸「WPS Office」当 writer——表格/演示
+        窗口也带同样的后缀，所以先查表格/演示特征，最后才用文稿序号
+        兜底 writer。
+        """
         text = title.decode('utf-8', 'replace') if isinstance(title, bytes) else title
         text = text.lower()
         if (X11Paste.TITLE_SPREADSHEET.search(text) or 'wps表格' in text
-                or '新建表格' in text or '工作簿' in text):
+                or '新建表格' in text or '工作簿' in text or '表格文稿' in text
+                or re.search(r'(?<![文演])表格\s*\d*(\s*-|$)', text)):
             return 'spreadsheet'
         if (X11Paste.TITLE_PRESENTATION.search(text) or 'wps演示' in text
-                or '新建演示' in text):
+                or '新建演示' in text or '演示文稿' in text):
             return 'presentation'
         if (X11Paste.TITLE_WRITER.search(text) or 'wps文字' in text
-                or '新建文档' in text or '新建文字' in text):
+                or '新建文档' in text or '新建文字' in text
+                or re.search(r'文字\s*文稿\s*\d*', text) or '文档文稿' in text):
             return 'writer'
         return None
 
