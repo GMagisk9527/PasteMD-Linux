@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.1" date="2026-09-19">
+      <description>
+        <p>修复 AppImage 在 Fedora 上按热键崩溃（剥离捆绑的 X11/xcb/xkb 库，避免与系统库混载段错误）；修复 WPS 新建空白文档（文字文稿N/演示文稿N/表格N）不被识别导致不自动粘贴的问题。</p>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-09-18">
       <description>
         <p>新增：按转换类型配置 Pandoc 过滤器（如 Mermaid 支持）、保留生成的 DOCX 与自定义保存目录、粘贴后光标移到文档末尾。修复：单独携带 math-inline/math-block 类的公式 span 现在能正确还原为原生公式；应用规则解析更健壮（标题正则可含 |，非法配置整条忽略）。</p>
