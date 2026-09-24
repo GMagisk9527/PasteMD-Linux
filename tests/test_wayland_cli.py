@@ -252,7 +252,21 @@ class WaylandTests(unittest.TestCase):
                          ['--highlight-style', 'tango'])
         self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'zenburn'}),
                          ['--highlight-style', 'zenburn'])
-        self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'none'}), [])
+        self.assertEqual(cli.docx_writer_args({'code_highlight_style': 'none'}),
+                         ['--no-highlight'])
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc required')
+    def test_no_highlight_removes_token_styles_from_docx(self):
+        import io
+        import zipfile
+        document = cli.prepare_document(b'```python\nprint("hi")\n```', 'markdown')
+        docx = cli.run([cli.pandoc_bin(), '--from', 'json', '--to', 'docx',
+                        '--output', '-'] + cli.docx_writer_args({'code_highlight_style': 'none'}),
+                       document)
+        with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+            xml = archive.read('word/document.xml')
+        self.assertNotIn(b'BuiltInTok', xml)
+        self.assertNotIn(b'StringTok', xml)
 
     def test_stage_filters_follow_conversion_flags(self):
         options = {'pandoc_filters': ['/tmp/custom.lua', '/tmp/tool.py'],
@@ -308,6 +322,18 @@ class WaylandTests(unittest.TestCase):
         untouched = cli.prepare_document(source.encode(), 'markdown' + cli.MATH_EXTENSIONS,
                                          {'fix_single_dollar_block': False})
         self.assertEqual(self._count_math(json.loads(untouched)), 0)
+
+    def test_long_fence_does_not_close_at_shorter_nested_fence(self):
+        from pastemd.utils.latex import convert_latex_delimiters
+        from pastemd.utils.md_normalizer import normalize_markdown
+        source = '````markdown\n```shell\n$  a  $\n```\n# not heading\n````'
+        self.assertEqual(convert_latex_delimiters(source), source)
+        self.assertEqual(normalize_markdown(source), source)
+        self.assertEqual(convert_latex_delimiters(source + '\n$  x  $'),
+                         source + '\n$x$')
+        dollar_block = '~~~~\n```\n$\nx\n$\n```\n~~~~'
+        self.assertEqual(convert_latex_delimiters(dollar_block), dollar_block)
+        self.assertEqual(normalize_markdown(dollar_block), dollar_block)
 
     def test_inline_math_space_fix_skips_code_spans_and_fences(self):
         from pastemd.utils.latex import convert_latex_delimiters
@@ -557,6 +583,11 @@ class WaylandTests(unittest.TestCase):
         self.assertTrue(apprules.match_app({'class': 'et'}, 'et.exe', '表格'))
         self.assertFalse(apprules.match_app({'class': 'et'}, 'wpsoffice', 'WPS'))
         self.assertFalse(apprules.match_app({'class': 'et'}, 'netease-cloud', '云音乐'))
+        self.assertTrue(apprules.match_app({'class': 'com.google.Chrome'},
+                                           'com.google.Chrome', '浏览器'))
+        self.assertFalse(apprules.match_app({'class': 'com.google.Chrome'},
+                                            'com.microsoft.Edge', '浏览器'))
+        self.assertFalse(apprules.match_app({'class': 'code'}, 'codeium', '编辑器'))
         hit_title = {'name': '文档', 'window_patterns': ['语雀']}
         self.assertTrue(apprules.match_app(hit_title, 'chrome', '语雀 - Google Chrome'))
         self.assertFalse(apprules.match_app(hit_title, 'chrome', '首页 - Google Chrome'))
@@ -581,7 +612,10 @@ class WaylandTests(unittest.TestCase):
         self.assertEqual(payload, {'text/plain': '正文'.encode()})
         html_doc = b'<p>hello</p>'
         payload = cli.text_clipboard_payload(html_doc, b'ast', 'html', 'html')
-        self.assertEqual(payload, {'text/html': html_doc})
+        self.assertEqual(payload, {'text/plain': html_doc})
+        with patch.object(cli, 'run', return_value=b'<p>converted</p>'):
+            payload = cli.text_clipboard_payload(b'# converted', b'ast', 'markdown', 'html')
+        self.assertEqual(payload, {'text/plain': b'<p>converted</p>'})
         with patch.object(cli, 'run', return_value=b'latex out') as run:
             payload = cli.text_clipboard_payload(b'x', b'ast', 'markdown+tex', 'latex')
         self.assertEqual(payload['text/plain'], b'latex out')

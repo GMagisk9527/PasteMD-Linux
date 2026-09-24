@@ -2,6 +2,8 @@
 
 import re
 
+from .markdown_fences import closes_fence, fence_marker
+
 
 def convert_latex_delimiters(text: str, fix_single_dollar_block: bool = True) -> str:
     """
@@ -75,18 +77,16 @@ def _fix_inline_math_spaces(text: str) -> str:
     in_code_block = False
     code_fence_char = ""
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('```') or stripped.startswith('~~~'):
-            fence = stripped[:3]
-            if not in_code_block:
-                in_code_block = True
-                code_fence_char = fence
-            elif stripped.startswith(code_fence_char):
+        fence = fence_marker(line)
+        if in_code_block:
+            if closes_fence(line, code_fence_char):
                 in_code_block = False
                 code_fence_char = ""
             result.append(line)
             continue
-        if in_code_block:
+        if fence:
+            in_code_block = True
+            code_fence_char = fence
             result.append(line)
             continue
         # 奇数下标是行内代码片段，原样保留；偶数下标才做 $ 修复
@@ -114,23 +114,17 @@ def _fix_single_dollar_blocks(text: str) -> str:
     in_dollar_block = False
     
     for line in lines:
-        stripped = line.strip()
-        
         # 1. 代码块检测
-        if stripped.startswith('```') or stripped.startswith('~~~'):
-            fence = stripped[:3]
-            if not in_code_block:
-                in_code_block = True
-                code_fence_char = fence
-                new_lines.append(line)
-                continue
-            elif stripped.startswith(code_fence_char):
+        if in_code_block:
+            if closes_fence(line, code_fence_char):
                 in_code_block = False
                 code_fence_char = ""
-                new_lines.append(line)
-                continue
-            
-        if in_code_block:
+            new_lines.append(line)
+            continue
+        fence = fence_marker(line)
+        if fence:
+            in_code_block = True
+            code_fence_char = fence
             new_lines.append(line)
             continue
             

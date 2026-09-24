@@ -201,7 +201,9 @@ def docx_writer_args(options):
     style = options.get('code_highlight_style') or 'default'
     if style == 'default':
         style = 'tango'  # 历史行为：默认即 tango 配色
-    if style != 'none':
+    if style == 'none':
+        args += ['--no-highlight']
+    else:
         args += ['--highlight-style', style]
     reference = options.get('reference_docx')
     if reference:
@@ -480,10 +482,10 @@ def text_clipboard_payload(raw, document, reader, target_format, options=None):
         return {'text/plain': text.encode('utf-8')}
     if target_format == 'html':
         if reader.startswith('html'):
-            return {'text/html': raw}
+            return {'text/plain': raw}
         text = run([pandoc_bin(), '--from', 'json', '--to', 'html'],
                    document).decode('utf-8', 'replace')
-        return {'text/html': text.encode('utf-8')}
+        return {'text/plain': text.encode('utf-8')}
     raise RuntimeError(f'未知的目标格式：{target_format}')
 
 

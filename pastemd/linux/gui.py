@@ -15,7 +15,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QKeySequenceEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QPlainTextEdit, QPushButton, QSpinBox, QSystemTrayIcon, QTabWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSystemTrayIcon, QTabWidget,
     QVBoxLayout, QWidget, QMenu)
 
 from . import cli
@@ -91,8 +91,7 @@ class ConversionWorker(QThread):
                 Path(keep_path).write_bytes(payload['Kingsoft WPS 9.0 Format'])
                 result['keep_path'] = str(keep_path)
             except OSError as keep_error:
-                self.failed.emit(f'文件保留失败：{keep_error}')
-                return
+                result['keep_error'] = str(keep_error)
         self.completed.emit(result)
 
     def run(self):
@@ -160,6 +159,7 @@ class MainWindow(QMainWindow):
         self.last_plain = None
         self.last_html = None
         self.lost_images = 0
+        self.keep_note = ''
         self.flow = 'doc'
         self.paste_deadline = 0
         self.x11 = None
@@ -251,8 +251,10 @@ class MainWindow(QMainWindow):
         home_layout.addWidget(self.log, 1)
         self.tabs.addTab(home, '转换')
 
-        settings_tab = QWidget()
-        controls = QVBoxLayout(settings_tab)
+        settings_tab = QScrollArea()
+        settings_tab.setWidgetResizable(True)
+        settings_content = QWidget()
+        controls = QVBoxLayout(settings_content)
         controls.setContentsMargins(18, 20, 18, 16)
         controls.setSpacing(16)
         settings_form = QFormLayout()
@@ -417,7 +419,7 @@ class MainWindow(QMainWindow):
             rules_form.addRow(label, row)
             self.workflow_edits[key] = (enabled, edit)
         rules_note = QLabel('命中的窗口自动改粘贴文本格式，例如：语雀 | yuque | 语雀。'
-                            'WM_CLASS 用 token 精确匹配；标题正则可留空。')
+                            '短 WM_CLASS 按 token 匹配，带点的完整类名按全名匹配；标题正则可留空。')
         rules_note.setWordWrap(True)
         rules_form.addRow(rules_note)
         controls.addLayout(rules_form)
@@ -437,6 +439,7 @@ class MainWindow(QMainWindow):
         about.clicked.connect(self._show_about)
         controls.addWidget(about)
         controls.addStretch()
+        settings_tab.setWidget(settings_content)
         self.tabs.addTab(settings_tab, '设置')
         footer = QLabel('源自 RICHQAQ/PasteMD · GNU AGPL-3.0    |    关闭窗口后继续驻留托盘')
         footer.setWordWrap(True)
@@ -680,9 +683,8 @@ class MainWindow(QMainWindow):
         # 桥接可能丢掉私有 MIME；只能比较实际载荷，不能仅凭格式判断是旧结果。
         if self.last_source and mime is not None:
             has_html = mime.hasFormat('text/html')
-            if self.last_flow in ('table', 'html'):
-                matches = (self._html_matches(mime) if has_html else
-                           self.last_flow == 'table' and self._plain_matches(mime))
+            if self.last_flow == 'table':
+                matches = self._html_matches(mime) if has_html else self._plain_matches(mime)
             else:
                 matches = self._plain_matches(mime) and not has_html
             if matches:
@@ -870,13 +872,16 @@ class MainWindow(QMainWindow):
         keep_note = ''
         if result.get('keep_path'):
             keep_note = ' 已保留文件：' + result['keep_path']
+        if result.get('keep_error'):
+            keep_note = '（文件保留失败：' + result['keep_error'] + '）'
+        self.keep_note = keep_note
         if self.want_paste and self.target:
             self.paste_pending = True
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
-            if fallback_note:
-                self.report(fallback_note)
+            if fallback_note or result.get('keep_error'):
+                self.report(fallback_note + keep_note, notify=bool(result.get('keep_error')))
         elif 'text_flow' in result:
             self.report('已按' + cli.text_clipboard_label(result['text_flow'])
                         + '文本写入剪贴板，在目标应用中按 Ctrl+V。', notify=True)
@@ -901,10 +906,10 @@ class MainWindow(QMainWindow):
             token_ok = (self.clipboard_token and token_data is not None
                         and bytes(token_data) == self.clipboard_token)
             # 桥接丢失私有 token 时，仅在实际载荷与刚写入的内容一致时粘贴。
-            if self.flow in ('table', 'html') and mime is not None and mime.hasFormat('text/html'):
+            if self.flow == 'table' and mime is not None and mime.hasFormat('text/html'):
                 payload_ok = self._html_matches(mime)
             else:
-                payload_ok = (self.flow != 'html' and self._plain_matches(mime)
+                payload_ok = (self._plain_matches(mime)
                               and (mime is None or not mime.hasFormat('text/html')))
             if not token_ok and not payload_ok:
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
@@ -917,7 +922,8 @@ class MainWindow(QMainWindow):
                             + '文本粘贴。', notify=True)
             else:
                 lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
-                self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。' + lost_note, notify=True)
+                self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。'
+                            + lost_note + self.keep_note, notify=True)
         except Exception as error:
             self.report(str(error), notify=True)
         self.paste_timer.stop()

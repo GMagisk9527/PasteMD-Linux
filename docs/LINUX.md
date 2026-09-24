@@ -108,8 +108,9 @@ python3 scripts/pastemd-wayland.py --clipboard
 ```
 
 热键触发时若前台窗口命中某条规则，剪贴板会改为写入对应格式的纯文本
-（网页来源会先用 Pandoc 转换），随后照常自动粘贴。WM_CLASS 用 token
-精确匹配（`et` 不会误伤 `netease`）；标题正则用 `re.search` 匹配。
+（网页来源会先用 Pandoc 转换），随后照常自动粘贴。短 WM_CLASS 用 token
+精确匹配（`et` 不会误伤 `netease`）；带点的完整类名须全名匹配，
+避免 `com.google.Chrome` 误中其他 `com.*` 程序。标题正则用 `re.search` 匹配。
 配置键 `extensible_workflows` 与上游同名同构（Linux 分支不含 file 工作流）。
 
 命令行可以单独验证文本链路：`--as md`、`--as latex`、`--as html`。
@@ -120,7 +121,7 @@ python3 scripts/pastemd-wayland.py --clipboard
 
 1. 正常复制 Markdown 表格，或包含表格的网页/AI 内容（允许「标题 + 段落 + 表格」，取第一张表）。
 2. 在 WPS 表格中把光标放到目标位置，按热键。
-3. PasteMD 解析表格（纯文本优先；只有 HTML 时用 Pandoc 转成 Markdown 再解析），
+3. PasteMD 解析表格（纯文本含 Markdown 表格时优先使用；否则尝试将 HTML 表格用 Pandoc 转为 Markdown），
    以 `text/html` 表格加 `text/plain` TSV 兜底写入剪贴板，并自动粘贴。
 
 表格首行渲染为加粗底色表头，单元格支持加粗、斜体、删除线、行内代码和超链接。

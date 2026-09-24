@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 from PySide6.QtGui import QKeySequence
 from pastemd.linux import cli, settings
 from pastemd.linux.gui import ConversionWorker, MainWindow, start_window
@@ -166,6 +166,56 @@ class DesktopTests(unittest.TestCase):
         self.addCleanup(window.deleteLater)
         return window
 
+    def test_settings_tab_scrolls_to_save_button(self):
+        window = self.window()
+        settings_tab = window.tabs.widget(1)
+        self.assertIsInstance(settings_tab, QScrollArea)
+        self.assertTrue(settings_tab.widgetResizable())
+        self.assertTrue(settings_tab.widget().isAncestorOf(window.workflow_edits['html'][1]))
+        self.assertTrue(settings_tab.widget().isAncestorOf(window.save_dir_edit))
+        save_buttons = settings_tab.widget().findChildren(type(window.convert_button))
+        self.assertTrue(any(button.text() == '保存设置' for button in save_buttons))
+        window.resize(640, 570)
+        window.show()
+        window.tabs.setCurrentIndex(1)
+        app.processEvents()
+        self.assertGreater(settings_tab.verticalScrollBar().maximum(), 0)
+        window.close()
+
+    def test_keep_file_failure_does_not_block_clipboard_completion(self):
+        worker = ConversionWorker('markdown', options={'keep_file': True})
+        completed, failed = [], []
+        worker.completed.connect(completed.append)
+        worker.failed.connect(failed.append)
+        with patch('pastemd.linux.gui.cli.prepare_document', return_value=b'{}'), \
+                patch('pastemd.linux.gui.cli.run', return_value=b'plain'), \
+                patch('pastemd.linux.gui.cli.native_clipboard_payload',
+                      return_value={'Kingsoft WPS 9.0 Format': b'docx', 'text/plain': b'plain'}), \
+                patch('pastemd.linux.gui.cli.set_clipboard_payload') as clipboard, \
+                patch('pastemd.linux.gui.cli.lost_image_count', return_value=0), \
+                patch('pastemd.linux.gui.cli.docx_output_path', side_effect=OSError('磁盘已满')):
+            worker._emit_document(b'# hello', 'markdown')
+        clipboard.assert_called_once()
+        self.assertEqual(failed, [])
+        self.assertEqual(completed[0]['keep_error'], '磁盘已满')
+        self.assertEqual(completed[0]['flow'], 'doc')
+        window = self.window()
+        window.want_paste = True
+        window.target = (10, '文档', 'writer')
+        window._converted(completed[0])
+        self.assertTrue(window.paste_pending)
+        self.assertIn('文件保留失败', window.log.toPlainText())
+        window.x11 = Mock()
+        window.x11.focused_app.return_value = window.target
+        window.x11.modifiers_held.return_value = False
+        window.paste_ready_at = 0
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value.data.return_value = window.clipboard_token
+            window._try_paste()
+        window.x11.paste.assert_called_once()
+        self.assertIn('已向 WPS 发送粘贴', window.log.toPlainText())
+        self.assertIn('文件保留失败', window.log.toPlainText().splitlines()[-1])
+
     def test_focus_change_cancels_paste(self):
         window = self.window()
         window.x11 = Mock()
@@ -244,7 +294,7 @@ class DesktopTests(unittest.TestCase):
         window.x11.paste.assert_not_called()
         self.assertIn('剪贴板已变化', window.log.toPlainText())
 
-    def test_html_paste_requires_matching_html_when_token_is_lost(self):
+    def test_html_paste_requires_matching_plain_source_when_token_is_lost(self):
         window = self.window()
         window.x11 = Mock()
         window.target = (10, 'HTML 目标', None)
@@ -252,17 +302,19 @@ class DesktopTests(unittest.TestCase):
         window.x11.modifiers_held.return_value = False
         window.flow = 'html'
         window.clipboard_token = b'old-token'
-        window.last_html = b'<p>old</p>'
+        window.last_plain = '<p>old</p>'
         mime = Mock()
-        mime.hasFormat.side_effect = lambda name: name == 'text/html'
-        mime.data.side_effect = lambda name: b'<p>old</p>' if name == 'text/html' else b''
+        mime.hasFormat.return_value = False
+        mime.data.return_value = b''
+        mime.hasText.return_value = True
+        mime.text.return_value = '<p>old</p>'
         with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
             clipboard.return_value.mimeData.return_value = mime
             window.paste_pending = True
             window.paste_ready_at = 0
             window._try_paste()
             window.x11.paste.assert_called_once()
-            mime.data.side_effect = lambda name: b'<p>new</p>' if name == 'text/html' else b''
+            mime.text.return_value = '<p>new</p>'
             window.x11.paste.reset_mock()
             window.paste_pending = True
             window.paste_ready_at = 0
@@ -491,20 +543,20 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(window.flow, 'doc')
         self.assertEqual(worker.call_args.kwargs['flow'], 'doc')
 
-    def test_html_worker_completes_without_plain_text(self):
+    def test_html_worker_writes_source_as_plain_text(self):
         worker = ConversionWorker('auto', flow='html', source=b'# hello')
         completed, failed = [], []
         worker.completed.connect(completed.append)
         worker.failed.connect(failed.append)
         with patch('pastemd.linux.gui.cli.prepare_document', return_value=b'{}'), \
                 patch('pastemd.linux.gui.cli.text_clipboard_payload',
-                      return_value={'text/html': b'<h1>hello</h1>'}), \
+                      return_value={'text/plain': b'<h1>hello</h1>'}), \
                 patch('pastemd.linux.gui.cli.set_clipboard_payload') as clipboard:
             worker.run()
         self.assertEqual(failed, [])
         clipboard.assert_called_once()
-        self.assertEqual(completed[0]['html'], b'<h1>hello</h1>')
-        self.assertIsNone(completed[0]['plain'])
+        self.assertEqual(completed[0]['plain'], '<h1>hello</h1>')
+        self.assertIsNone(completed[0]['html'])
 
     def test_table_worker_falls_back_to_document_without_markdown_table(self):
         worker = ConversionWorker('auto', flow='table', source='# 只有段落\n\n没有表')

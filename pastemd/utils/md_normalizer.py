@@ -7,11 +7,12 @@
 
 import re
 
+from .markdown_fences import closes_fence, fence_marker
+
 _HEADING_RE = re.compile(r'^#{1,6}\s+')
 _HR_RE = re.compile(r'^[-*_]{3,}$')
 _ULIST_RE = re.compile(r'^[-*+]\s')
 _OLIST_RE = re.compile(r'^\d+\.\s')
-_FENCE_RE = re.compile(r'^(```|~~~)')
 
 
 def _is_table_separator(line):
@@ -33,7 +34,7 @@ def _line_type(line, in_code_block):
         return 'empty'
     if in_code_block:
         return 'code'
-    if _FENCE_RE.match(line):
+    if fence_marker(line):
         return 'code'
     if _HEADING_RE.match(line):
         return 'heading'
@@ -73,7 +74,7 @@ def _needs_blank_after(current_type, index, lines, in_code_block):
         return False
     if current_type in ('heading', 'hr'):
         return True
-    if current_type == 'code' and _FENCE_RE.match(lines[index]) and not in_code_block:
+    if current_type == 'code' and fence_marker(lines[index]) and not in_code_block:
         return True
     return False
 
@@ -87,14 +88,14 @@ def normalize_markdown(md_text):
     prev_type = 'start'
     for index, line in enumerate(lines):
         current = _line_type(line, in_code_block)
-        fence = _FENCE_RE.match(line)
-        if fence:
-            if not in_code_block:
-                in_code_block = True
-                code_fence_char = fence.group(1)
-            elif fence.group(1) == code_fence_char:
+        fence = fence_marker(line)
+        if in_code_block:
+            if closes_fence(line, code_fence_char):
                 in_code_block = False
                 code_fence_char = ""
+        elif fence:
+            in_code_block = True
+            code_fence_char = fence
         if _needs_blank_before(prev_type, current) and result and result[-1].strip():
             result.append('')
         result.append(line)

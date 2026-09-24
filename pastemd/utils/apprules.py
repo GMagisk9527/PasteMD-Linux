@@ -34,7 +34,9 @@ def _class_matches(pattern, resource_class):
     pattern = pattern.strip().lower()
     if not pattern:
         return False
-    return bool(_tokens(pattern) & _tokens(str(resource_class or '').lower()))
+    name = str(resource_class or '').lower()
+    # 完整类名必须完整匹配；短类名仍可命中 et.exe 等复合 WM_CLASS。
+    return (pattern == name if '.' in pattern else pattern in _tokens(name))
 
 
 def match_app(app, resource_class, caption):
