@@ -240,7 +240,7 @@ def docx_output_path(options=None):
             target = None
         if target is not None:
             stamp = time.strftime('%Y%m%d-%H%M%S')
-            return target / f'pastemd-{stamp}.docx'
+            return target / f'pastemd-{stamp}-{uuid.uuid4().hex}.docx'
     cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
     cache.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
@@ -411,13 +411,18 @@ def read_table_source():
     if clipboard_holds_conversion(types):
         raise RuntimeError('剪贴板仍是上次转换结果。请重新复制 Markdown 表格后再转换。')
     plain = next((t for t in types if t.lower().startswith('text/plain')), None)
-    if plain:
-        return run(['wl-paste', '--no-newline', '--type', plain]).decode('utf-8', 'replace')
+    plain_text = (run(['wl-paste', '--no-newline', '--type', plain]).decode('utf-8', 'replace')
+                  if plain else None)
+    if plain_text is not None and parse_markdown_table(plain_text):
+        return plain_text
     html = next((kind for kind in types
                  if kind.partition(';')[0].strip().lower() == 'text/html'), None)
     if html:
         raw = run(['wl-paste', '--no-newline', '--type', html])
-        return run([pandoc_bin(), '--from', 'html', '--to', 'gfm'], raw).decode('utf-8', 'replace')
+        if b'<table' in raw.lower():
+            return run([pandoc_bin(), '--from', 'html', '--to', 'gfm'], raw).decode('utf-8', 'replace')
+    if plain_text is not None:
+        return plain_text
     raise RuntimeError('剪贴板没有文本，无法识别表格。请复制 Markdown 表格或网页表格。')
 
 

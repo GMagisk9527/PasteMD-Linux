@@ -222,6 +222,54 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(window.paste_pending)
         self.assertIn('剪贴板已变化', window.log.toPlainText())
 
+    def test_changed_text_with_same_mime_cancels_automatic_paste(self):
+        window = self.window()
+        window.x11 = Mock()
+        window.target = (10, '文档', 'writer')
+        window.x11.focused_app.return_value = window.target
+        window.x11.modifiers_held.return_value = False
+        window.flow = 'md'
+        window.clipboard_token = b'old-token'
+        window.last_plain = 'old text'
+        window.paste_pending = True
+        window.paste_ready_at = 0
+        mime = Mock()
+        mime.data.return_value = b'new-token'
+        mime.hasFormat.return_value = False
+        mime.hasText.return_value = True
+        mime.text.return_value = 'new text'
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value = mime
+            window._try_paste()
+        window.x11.paste.assert_not_called()
+        self.assertIn('剪贴板已变化', window.log.toPlainText())
+
+    def test_html_paste_requires_matching_html_when_token_is_lost(self):
+        window = self.window()
+        window.x11 = Mock()
+        window.target = (10, 'HTML 目标', None)
+        window.x11.focused_app.return_value = window.target
+        window.x11.modifiers_held.return_value = False
+        window.flow = 'html'
+        window.clipboard_token = b'old-token'
+        window.last_html = b'<p>old</p>'
+        mime = Mock()
+        mime.hasFormat.side_effect = lambda name: name == 'text/html'
+        mime.data.side_effect = lambda name: b'<p>old</p>' if name == 'text/html' else b''
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value = mime
+            window.paste_pending = True
+            window.paste_ready_at = 0
+            window._try_paste()
+            window.x11.paste.assert_called_once()
+            mime.data.side_effect = lambda name: b'<p>new</p>' if name == 'text/html' else b''
+            window.x11.paste.reset_mock()
+            window.paste_pending = True
+            window.paste_ready_at = 0
+            window._try_paste()
+            window.x11.paste.assert_not_called()
+        self.assertIn('剪贴板已变化', window.log.toPlainText())
+
     def test_cold_trigger_does_not_show_window_even_without_tray(self):
         window = Mock(tray=None)
         args = Mock(trigger=True, minimized=False, smoke_test=None)
@@ -346,6 +394,21 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(worker.call_args.kwargs['source'], source)
         self.assertIn('从原文重新转换', window.log.toPlainText())
 
+    def test_new_html_table_is_not_reused_as_previous_table(self):
+        window = self.window()
+        window.last_source = b'| old |\n|---|\n| value |'
+        window.last_flow = 'table'
+        window.last_plain = 'old\nvalue'
+        window.last_html = b'<table><tr><td>old</td></tr></table>'
+        mime = Mock()
+        mime.hasFormat.side_effect = lambda name: name == 'text/html'
+        mime.data.return_value = b'<table><tr><td>new</td></tr></table>'
+        mime.hasText.return_value = True
+        mime.text.return_value = 'new'
+        with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
+            clipboard.return_value.mimeData.return_value = mime
+            self.assertIsNone(window._converted_clip_meta())
+
     def test_wps_window_class_matches_loose_variants(self):
         for names in (['wps'], ['kwps'], ['wpsoffice'], ['com.wps.writer']):
             self.assertTrue(X11Paste.is_wps(names), names)
@@ -427,6 +490,21 @@ class DesktopTests(unittest.TestCase):
             window.convert(paste=True)
         self.assertEqual(window.flow, 'doc')
         self.assertEqual(worker.call_args.kwargs['flow'], 'doc')
+
+    def test_html_worker_completes_without_plain_text(self):
+        worker = ConversionWorker('auto', flow='html', source=b'# hello')
+        completed, failed = [], []
+        worker.completed.connect(completed.append)
+        worker.failed.connect(failed.append)
+        with patch('pastemd.linux.gui.cli.prepare_document', return_value=b'{}'), \
+                patch('pastemd.linux.gui.cli.text_clipboard_payload',
+                      return_value={'text/html': b'<h1>hello</h1>'}), \
+                patch('pastemd.linux.gui.cli.set_clipboard_payload') as clipboard:
+            worker.run()
+        self.assertEqual(failed, [])
+        clipboard.assert_called_once()
+        self.assertEqual(completed[0]['html'], b'<h1>hello</h1>')
+        self.assertIsNone(completed[0]['plain'])
 
     def test_table_worker_falls_back_to_document_without_markdown_table(self):
         worker = ConversionWorker('auto', flow='table', source='# 只有段落\n\n没有表')

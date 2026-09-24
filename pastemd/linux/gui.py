@@ -118,7 +118,8 @@ class ConversionWorker(QThread):
                 source_bytes = source if isinstance(source, bytes) else source.encode('utf-8')
                 self.completed.emit({'clipboard': True, 'token': token, 'rows': rows,
                                      'source': source_bytes, 'reader': reader, 'flow': 'table',
-                                     'plain': payload['text/plain'].decode('utf-8', 'replace')})
+                                     'plain': payload['text/plain'].decode('utf-8', 'replace'),
+                                     'html': payload['text/html']})
                 return
             source, reader = self._load_source()
             if not source.strip():
@@ -131,9 +132,11 @@ class ConversionWorker(QThread):
                                                      self.options)
                 payload, token = cli.stamp_conversion(payload, source, reader, self.flow)
                 cli.set_clipboard_payload(payload)
+                plain = payload.get('text/plain')
                 self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow,
                                      'source': source, 'reader': reader, 'flow': self.flow,
-                                     'plain': payload['text/plain'].decode('utf-8', 'replace')})
+                                     'plain': plain.decode('utf-8', 'replace') if plain is not None else None,
+                                     'html': payload.get('text/html')})
                 return
             self._emit_document(source, reader)
         except Exception as error:
@@ -155,6 +158,7 @@ class MainWindow(QMainWindow):
         self.last_reader = None
         self.last_flow = None
         self.last_plain = None
+        self.last_html = None
         self.lost_images = 0
         self.flow = 'doc'
         self.paste_deadline = 0
@@ -658,6 +662,11 @@ class MainWindow(QMainWindow):
             return False
         return current.replace('\r\n', '\n').rstrip('\n') == self.last_plain.replace('\r\n', '\n').rstrip('\n')
 
+    def _html_matches(self, mime):
+        return (mime is not None and self.last_html is not None
+                and mime.hasFormat('text/html')
+                and bytes(mime.data('text/html')) == self.last_html)
+
     def _converted_clip_meta(self):
         """上次转换结果是否还在剪贴板：优先 Qt MIME；冒烟测试不碰 wl-paste。"""
         mime = QApplication.clipboard().mimeData()
@@ -668,12 +677,15 @@ class MainWindow(QMainWindow):
                 reader = bytes(mime.data(CLIPBOARD_READER_MIME) or b'').decode('utf-8', 'replace') if mime.hasFormat(CLIPBOARD_READER_MIME) else ''
                 flow = bytes(mime.data(CLIPBOARD_FLOW_MIME) or b'').decode('utf-8', 'replace') if mime.hasFormat(CLIPBOARD_FLOW_MIME) else ''
                 return {'token': token, 'source': source, 'reader': reader, 'flow': flow}
-        # 桥接可能丢掉私有 MIME：X11 侧仍是 Kingsoft/HTML，Wayland 侧往往只剩
-        # 转换后的 text/plain。用进程内原文 + 上次写出的纯文本比对兜底。
+        # 桥接可能丢掉私有 MIME；只能比较实际载荷，不能仅凭格式判断是旧结果。
         if self.last_source and mime is not None:
-            kingsoft = mime.hasFormat('Kingsoft WPS 9.0 Format')
-            table_html = self.last_flow == 'table' and (mime.hasHtml() or mime.hasFormat('text/html'))
-            if kingsoft or table_html or self._plain_matches(mime):
+            has_html = mime.hasFormat('text/html')
+            if self.last_flow in ('table', 'html'):
+                matches = (self._html_matches(mime) if has_html else
+                           self.last_flow == 'table' and self._plain_matches(mime))
+            else:
+                matches = self._plain_matches(mime) and not has_html
+            if matches:
                 return self._reuse_meta(self.last_source, self.last_reader, self.last_flow)
         if self.smoke or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
             return None
@@ -852,8 +864,8 @@ class MainWindow(QMainWindow):
         if result.get('flow') is not None:
             self.last_flow = result['flow']
             self.flow = result['flow']
-        if result.get('plain') is not None:
-            self.last_plain = result['plain']
+        self.last_plain = result.get('plain')
+        self.last_html = result.get('html')
         fallback_note = '未识别到表格，已改走文档流。' if result.get('table_fallback') else ''
         keep_note = ''
         if result.get('keep_path'):
@@ -888,17 +900,13 @@ class MainWindow(QMainWindow):
             token_data = mime.data(CLIPBOARD_TOKEN_MIME) if mime is not None else None
             token_ok = (self.clipboard_token and token_data is not None
                         and bytes(token_data) == self.clipboard_token)
-            # XWayland 桥接后 Qt 不一定看得到私有 MIME；只要仍持有我们写入的
-            # WPS 原生格式或 HTML 表格，就视为结果还在，继续粘贴。
-            owned = False
-            if mime is not None:
-                if self.flow == 'table':
-                    owned = mime.hasFormat('text/html') or mime.hasHtml()
-                elif self.flow in cli.TEXT_FORMAT_LABELS:
-                    owned = mime.hasText()
-                else:
-                    owned = mime.hasFormat('Kingsoft WPS 9.0 Format')
-            if not token_ok and not owned and not self._plain_matches(mime):
+            # 桥接丢失私有 token 时，仅在实际载荷与刚写入的内容一致时粘贴。
+            if self.flow in ('table', 'html') and mime is not None and mime.hasFormat('text/html'):
+                payload_ok = self._html_matches(mime)
+            else:
+                payload_ok = (self.flow != 'html' and self._plain_matches(mime)
+                              and (mime is None or not mime.hasFormat('text/html')))
+            if not token_ok and not payload_ok:
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target,
                            move_cursor_to_end=bool(self.settings.get('move_cursor_to_end', True)))

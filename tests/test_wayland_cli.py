@@ -93,7 +93,9 @@ class WaylandTests(unittest.TestCase):
             with patch.dict(os.environ, XDG_CACHE_HOME=directory):
                 path = cli.docx_output_path({'save_dir': str(Path(directory) / 'keep')})
                 self.assertEqual(path.parent, Path(directory) / 'keep')
-                self.assertRegex(path.name, r'pastemd-\d{8}-\d{6}\.docx')
+                self.assertRegex(path.name, r'pastemd-\d{8}-\d{6}-[0-9a-f]{32}\.docx')
+                second = cli.docx_output_path({'save_dir': str(Path(directory) / 'keep')})
+                self.assertNotEqual(path, second)
             # 缓存目录没有新文件（save_dir 命中时不再碰缓存）
             self.assertEqual(list((Path(directory) / 'pastemd').glob('*')), [])
         # save_dir 不可创建时回退缓存
@@ -488,6 +490,15 @@ class WaylandTests(unittest.TestCase):
             text = cli.read_table_source()
         self.assertIn('| a | b |', text)
         self.assertEqual(run.call_args_list[1].args[0][1], '--no-newline')
+
+    def test_read_table_source_uses_html_when_plain_is_tsv(self):
+        html = b'<table><tr><th>a</th></tr><tr><td>1</td></tr></table>'
+        with patch.object(cli, 'run', side_effect=[
+                b'text/plain\ntext/html\n', b'a\n1', html,
+                b'| a |\n|---|\n| 1 |']) as run:
+            text = cli.read_table_source()
+        self.assertEqual(text, '| a |\n|---|\n| 1 |')
+        self.assertEqual(run.call_args_list[3].args[0][-1], 'gfm')
 
     def test_read_table_source_converts_html_tables(self):
         html = '<table><tr><th>a</th></tr><tr><td>1</td></tr></table>'
