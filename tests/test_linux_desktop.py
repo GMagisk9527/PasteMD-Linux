@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QApplication, QScrollArea
+from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
 from PySide6.QtGui import QKeySequence
 from pastemd.linux import cli, settings
 from pastemd.linux.gui import ConversionWorker, MainWindow, start_window
@@ -181,6 +181,37 @@ class DesktopTests(unittest.TestCase):
         app.processEvents()
         self.assertGreater(settings_tab.verticalScrollBar().maximum(), 0)
         window.close()
+
+    def test_cache_cleanup_requires_confirmation(self):
+        window = self.window()
+        candidate = Path(self.temp.name) / 'paste-old.docx'
+        with patch('pastemd.linux.gui.cli.cached_docx_candidates', return_value=[candidate]), \
+                patch('pastemd.linux.gui.cli.cleanup_cached_docx', return_value=1) as clean, \
+                patch('pastemd.linux.gui.QMessageBox.question',
+                      return_value=QMessageBox.StandardButton.No):
+            window._clear_old_cache()
+            clean.assert_not_called()
+        with patch('pastemd.linux.gui.cli.cached_docx_candidates', return_value=[candidate]), \
+                patch('pastemd.linux.gui.cli.cleanup_cached_docx', return_value=1) as clean, \
+                patch('pastemd.linux.gui.QMessageBox.question',
+                      return_value=QMessageBox.StandardButton.Yes):
+            window._clear_old_cache()
+            clean.assert_called_once()
+        self.assertIn('已清理 1 个旧缓存 DOCX', window.log.toPlainText())
+
+    def test_worker_emits_conversion_stages(self):
+        worker = ConversionWorker('markdown', source=b'# heading', flow='md')
+        stages, completed = [], []
+        worker.stage.connect(stages.append)
+        worker.completed.connect(completed.append)
+        with patch('pastemd.linux.gui.cli.prepare_document', return_value=b'{}'), \
+                patch('pastemd.linux.gui.cli.text_clipboard_payload',
+                      return_value={'text/plain': b'# heading'}), \
+                patch('pastemd.linux.gui.cli.set_clipboard_payload'):
+            worker.run()
+        self.assertEqual(stages, ['正在读取剪贴板内容…', '正在转换文本格式…',
+                                  '正在写入剪贴板…'])
+        self.assertEqual(completed[0]['flow'], 'md')
 
     def test_keep_file_failure_does_not_block_clipboard_completion(self):
         worker = ConversionWorker('markdown', options={'keep_file': True})

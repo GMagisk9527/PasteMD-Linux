@@ -226,6 +226,38 @@ def finish_docx(docx, reader, options=None):
     )
 
 
+def cache_docx_dir():
+    return Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
+
+
+def cached_docx_candidates(days=7, now=None):
+    """只列出默认缓存中超过指定天数的本程序临时 DOCX（不追随符号链接）。"""
+    cache = cache_docx_dir()
+    if not cache.is_dir():
+        return []
+    cutoff = (time.time() if now is None else now) - days * 86400
+    candidates = []
+    for path in cache.glob('paste-*.docx'):
+        try:
+            if not path.is_symlink() and path.is_file() and path.stat().st_mtime < cutoff:
+                candidates.append(path)
+        except FileNotFoundError:
+            continue
+    return candidates
+
+
+def cleanup_cached_docx(days=7, now=None):
+    """清理默认缓存里的旧临时 DOCX；绝不触及自定义保存目录。"""
+    removed = 0
+    for path in cached_docx_candidates(days, now):
+        try:
+            path.unlink()
+            removed += 1
+        except FileNotFoundError:
+            continue
+    return removed
+
+
 def docx_output_path(options=None):
     """DOCX 落盘路径：save_dir 优先且带时间戳文件名，否则沿用缓存临时文件。
 
@@ -243,7 +275,7 @@ def docx_output_path(options=None):
         if target is not None:
             stamp = time.strftime('%Y%m%d-%H%M%S')
             return target / f'pastemd-{stamp}-{uuid.uuid4().hex}.docx'
-    cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'pastemd'
+    cache = cache_docx_dir()
     cache.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(suffix='.docx', prefix='paste-', dir=cache)
     os.close(fd)

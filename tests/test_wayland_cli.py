@@ -104,6 +104,35 @@ class WaylandTests(unittest.TestCase):
                 path = cli.docx_output_path({'save_dir': '/proc/definitely/not/writable'})
                 self.assertEqual(path.parent, Path(directory) / 'pastemd')
 
+    def test_cleanup_only_old_default_cache_docx(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / 'pastemd'
+            cache.mkdir()
+            saved = root / 'saved'
+            saved.mkdir()
+            old = cache / 'paste-old.docx'
+            recent = cache / 'paste-recent.docx'
+            unrelated = cache / 'notes.docx'
+            keep = cache / 'pastemd-keep.docx'
+            custom = saved / 'pastemd-archive.docx'
+            outside = root / 'outside.docx'
+            for path in (old, recent, unrelated, keep, custom, outside):
+                path.write_bytes(b'docx')
+            link = cache / 'paste-link.docx'
+            link.symlink_to(outside)
+            now = 2_000_000_000
+            for path in (old, unrelated, keep, custom, outside):
+                os.utime(path, (now - 8 * 86400, now - 8 * 86400))
+            os.utime(recent, (now - 1 * 86400, now - 1 * 86400))
+            with patch.dict(os.environ, XDG_CACHE_HOME=directory):
+                self.assertEqual(cli.cached_docx_candidates(now=now), [old])
+                self.assertEqual(cli.cleanup_cached_docx(now=now), 1)
+                self.assertEqual(cli.cleanup_cached_docx(now=now), 0)
+            self.assertFalse(old.exists())
+            self.assertTrue(all(path.exists() for path in
+                                (recent, unrelated, keep, custom, outside, link)))
+
     def test_keep_file_persists_native_docx(self):
         expected = {'Kingsoft WPS 9.0 Format': b'docx-bytes', 'text/plain': b'plain'}
         with tempfile.TemporaryDirectory() as directory:

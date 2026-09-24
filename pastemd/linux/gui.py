@@ -35,6 +35,7 @@ CLIPBOARD_FLOW_MIME = cli.CLIPBOARD_FLOW_MIME
 class ConversionWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
+    stage = Signal(str)
 
     def __init__(self, input_format, demo=False, open_docx=False, options=None, flow='doc',
                  parent=None, source=None, reader=None):
@@ -62,9 +63,11 @@ class ConversionWorker(QThread):
             source = source.encode('utf-8')
         if not source.strip():
             raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
+        self.stage.emit('正在解析并转换文档…')
         document = cli.prepare_document(source, reader, self.options,
                                         conversion=cli.conversion_type(reader, 'docx'))
         if self.open_docx:
+            self.stage.emit('正在生成并保存 DOCX…')
             name = cli.docx_output_path(self.options)
             try:
                 docx = cli.run([cli.pandoc_bin(), '--from', 'json'] + cli.docx_writer_args(self.options)
@@ -77,9 +80,11 @@ class ConversionWorker(QThread):
             lost = cli.lost_image_count(document, docx)
             self.completed.emit({'path': name, 'lost_images': lost, **extra})
             return
+        self.stage.emit('正在生成含公式的 DOCX…')
         plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
         payload = cli.native_clipboard_payload(document, plain, self.options, reader)
         payload, token = cli.stamp_conversion(payload, source, reader, 'doc')
+        self.stage.emit('正在写入剪贴板…')
         cli.set_clipboard_payload(payload)
         lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
         result = {'clipboard': True, 'token': token, 'lost_images': lost,
@@ -97,6 +102,7 @@ class ConversionWorker(QThread):
     def run(self):
         try:
             if self.flow == 'table':
+                self.stage.emit('正在读取并解析表格…')
                 if self.source_override is not None:
                     raw = self.source_override
                     source = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else raw
@@ -113,6 +119,7 @@ class ConversionWorker(QThread):
                     self._emit_document(source, reader, extra={'table_fallback': True})
                     return
                 payload, token = cli.stamp_conversion(payload, source, reader, 'table')
+                self.stage.emit('正在写入剪贴板…')
                 cli.set_clipboard_payload(payload)
                 source_bytes = source if isinstance(source, bytes) else source.encode('utf-8')
                 self.completed.emit({'clipboard': True, 'token': token, 'rows': rows,
@@ -120,16 +127,19 @@ class ConversionWorker(QThread):
                                      'plain': payload['text/plain'].decode('utf-8', 'replace'),
                                      'html': payload['text/html']})
                 return
+            self.stage.emit('正在读取剪贴板内容…')
             source, reader = self._load_source()
             if not source.strip():
                 raise RuntimeError('剪贴板内容为空，请先复制 Markdown 或网页正文。')
             if self.flow in cli.TEXT_FORMAT_LABELS:
+                self.stage.emit('正在转换文本格式…')
                 document = cli.prepare_document(source, reader, self.options,
                                                 protect_task_lists=(self.flow == 'md'),
                                                 conversion=cli.conversion_type(reader, self.flow))
                 payload = cli.text_clipboard_payload(source, document, reader, self.flow,
                                                      self.options)
                 payload, token = cli.stamp_conversion(payload, source, reader, self.flow)
+                self.stage.emit('正在写入剪贴板…')
                 cli.set_clipboard_payload(payload)
                 plain = payload.get('text/plain')
                 self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow,
@@ -461,6 +471,8 @@ class MainWindow(QMainWindow):
         demo.triggered.connect(lambda: self.convert(demo=True))
         open_save = menu.addAction('打开 DOCX 保存目录')
         open_save.triggered.connect(self._open_save_dir)
+        clear_cache = menu.addAction('清理旧缓存 DOCX…')
+        clear_cache.triggered.connect(self._clear_old_cache)
         self.tray_rule_action = menu.addAction('为此窗口建规则…')
         self.tray_rule_action.triggered.connect(self._tray_add_rule)
         self.tray_rule_action.setVisible(False)
@@ -789,6 +801,7 @@ class MainWindow(QMainWindow):
                                        options=dict(self.settings), flow=self.flow, parent=self,
                                        source=source_override, reader=reader_override)
         self.worker.completed.connect(self._converted)
+        self.worker.stage.connect(self.report)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
         self.worker.finished.connect(self._worker_finished)
         self._set_busy(True)
@@ -880,6 +893,7 @@ class MainWindow(QMainWindow):
             self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
             self.paste_deadline = self.paste_ready_at + 3
             self.paste_timer.start()
+            self.report('转换完成，正在等待快捷键松开并核对目标窗口…')
             if fallback_note or result.get('keep_error'):
                 self.report(fallback_note + keep_note, notify=bool(result.get('keep_error')))
         elif 'text_flow' in result:
@@ -1013,6 +1027,25 @@ class MainWindow(QMainWindow):
             self.report('目录不存在：' + str(target), notify=True)
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+
+    def _clear_old_cache(self):
+        try:
+            candidates = cli.cached_docx_candidates()
+            if not candidates:
+                self.report('默认缓存中没有超过 7 天的临时 DOCX。')
+                return
+            answer = QMessageBox.question(
+                self, '清理旧缓存 DOCX',
+                f'确定删除默认缓存目录中 {len(candidates)} 个超过 7 天的临时 DOCX 吗？\n'
+                '仅清理 paste-*.docx，不会删除自选保存目录中的文件。',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            removed = cli.cleanup_cached_docx()
+            self.report(f'已清理 {removed} 个旧缓存 DOCX。', notify=True)
+        except OSError as error:
+            self.report('清理缓存失败：' + str(error), notify=True)
 
     def _install_launcher(self):
         try:

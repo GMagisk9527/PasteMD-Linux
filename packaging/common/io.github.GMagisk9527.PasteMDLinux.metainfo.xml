@@ -18,9 +18,9 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.6.2" date="2026-09-19">
+    <release version="0.6.2" date="2026-09-24">
       <description>
-        <p>修复统一套件窗口改名/无扩展名文档（期末报告、文档1、未命名、Document 1 等）不被识别导致不自动粘贴；混合 Markdown（标题+段落+表格）现在能抽出第一张表；热键再次触发时不再把上次转换结果当新源，同一窗口直接再粘贴；表格窗口但剪贴板不是表时改走文档流。</p>
+        <p>修复统一套件窗口改名/无扩展名文档不自动粘贴、混合 Markdown 抽不出表、重复热键重新转换，以及表格窗口复制非表内容时报错；剪贴板变化时不再误粘贴旧结果。修复 HTML 纯文本输出、代码围栏、关闭高亮和保存文件冲突；增加设置页滚动、转换阶段提示和经确认的旧缓存清理。</p>
       </description>
     </release>
     <release version="0.6.1" date="2026-09-19">

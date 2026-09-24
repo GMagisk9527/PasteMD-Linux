@@ -50,7 +50,7 @@ python3 scripts/pastemd-linux.py
 
 ## 图形界面和系统集成
 
-界面提供输入格式选择、公式测试、DOCX 备选输出、快捷键配置、自动粘贴、登录自启和运行记录。默认快捷键是 `Ctrl+Shift+B`。
+界面提供输入格式选择、公式测试、DOCX 备选输出、快捷键配置、自动粘贴、登录自启和运行记录；转换时会提示当前阶段（读取、转换、写入剪贴板等）。默认快捷键是 `Ctrl+Shift+B`。
 
 自动粘贴会核对转换前后的 WPS 窗口及文档标题，并等待快捷键松开；焦点发生变化时只准备剪贴板，不会向其他窗口发送按键。
 关闭主窗口后程序驻留系统托盘，可从托盘再次打开或退出。
@@ -94,7 +94,7 @@ python3 scripts/pastemd-wayland.py --open
 python3 scripts/pastemd-wayland.py --clipboard
 ```
 
-保存的 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`，需要自行清理。
+默认缓存 DOCX 位于 `${XDG_CACHE_HOME:-~/.cache}/pastemd`。托盘菜单「清理旧缓存 DOCX…」可经确认删除其中超过 7 天的 `paste-*.docx`；自选保存目录中的文件不会被清理。
 默认剪贴板模式在内存中生成、传递 DOCX，不保存中间文档。
 
 ## 应用扩展规则（按窗口切换粘贴格式）
