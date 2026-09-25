@@ -2,8 +2,11 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
+import time
+import uuid
 
 from ..utils.apprules import DEFAULT_WORKFLOWS, WORKFLOW_ORDER
 
@@ -64,6 +67,25 @@ def config_file():
     return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'pastemd-linux' / 'settings.json'
 
 
+def _recover_corrupt_settings(source, error):
+    backup = source.with_name(
+        f'{source.name}.broken-{time.strftime("%Y%m%d-%H%M%S")}-{uuid.uuid4().hex[:8]}')
+    try:
+        shutil.copy2(source, backup)
+    except OSError:
+        backup = None
+    restored = False
+    if backup:
+        try:
+            save_settings(DEFAULTS)
+            restored = True
+        except OSError:
+            pass
+    backup_note = f'已备份到 {backup}' if backup else '备份失败'
+    restore_note = '已恢复默认设置' if restored else '恢复默认设置失败'
+    raise RuntimeError(f'无法读取 Linux 设置：{error}；{backup_note}；{restore_note}') from error
+
+
 def load_settings():
     result = dict(DEFAULTS)
     try:
@@ -71,9 +93,10 @@ def load_settings():
     except FileNotFoundError:
         return result
     except (ValueError, OSError) as error:
-        raise RuntimeError('无法读取 Linux 设置：' + str(error)) from error
+        _recover_corrupt_settings(config_file(), error)
     if not isinstance(saved, dict):
-        raise RuntimeError('Linux 设置文件必须是 JSON 对象。')
+        _recover_corrupt_settings(
+            config_file(), ValueError('设置文件必须是 JSON 对象'))
     for key, default in DEFAULTS.items():
         value = saved.get(key, default)
         if isinstance(default, list):

@@ -133,6 +133,17 @@ class WaylandTests(unittest.TestCase):
             self.assertTrue(all(path.exists() for path in
                                 (recent, unrelated, keep, custom, outside, link)))
 
+    def test_lost_image_source_candidates_are_not_claimed_as_exact(self):
+        document = json.dumps({'blocks': [{'t': 'Para', 'c': [
+            {'t': 'Image', 'c': [[], [], ['https://a.example/a.png', '']]},
+            {'t': 'Image', 'c': [[], [], ['https://b.example/b.png', '']]}]}]})
+        import io
+        docx = io.BytesIO()
+        with zipfile.ZipFile(docx, 'w') as archive:
+            archive.writestr('word/media/image1.png', b'img')
+        self.assertEqual(cli.lost_image_sources(document, docx.getvalue()),
+                         ['https://a.example/a.png', 'https://b.example/b.png'])
+
     def test_keep_file_persists_native_docx(self):
         expected = {'Kingsoft WPS 9.0 Format': b'docx-bytes', 'text/plain': b'plain'}
         with tempfile.TemporaryDirectory() as directory:
@@ -142,6 +153,7 @@ class WaylandTests(unittest.TestCase):
                  patch.object(cli, 'prepare_document', return_value=b'{}'), \
                  patch.object(cli, 'run', return_value=b'plain'), \
                  patch.object(cli, 'native_clipboard_payload', return_value=expected), \
+                 patch.object(cli, 'lost_image_sources', return_value=[]), \
                  patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload'):
                 save_dir = Path(directory) / 'keep'
                 self.assertEqual(cli.main([], options={'keep_file': True,
@@ -159,6 +171,7 @@ class WaylandTests(unittest.TestCase):
                  patch.object(cli, 'prepare_document', return_value=b'{}'), \
                  patch.object(cli, 'run', return_value=b'plain'), \
                  patch.object(cli, 'native_clipboard_payload', return_value=expected), \
+                 patch.object(cli, 'lost_image_sources', return_value=[]), \
                  patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload'):
                 self.assertEqual(cli.main([], options={'keep_file': False,
                                                        'save_dir': str(Path(directory) / 'keep')}), 0)
@@ -173,7 +186,7 @@ class WaylandTests(unittest.TestCase):
 
     def test_default_writes_native_docx_without_opening_wps(self):
         expected = {'Kingsoft WPS 9.0 Format': b'docx', 'text/plain': b'plain'}
-        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'native_clipboard_payload', return_value=expected), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard, patch.object(cli.subprocess, 'Popen') as opener:
+        with patch.dict(os.environ, WAYLAND_DISPLAY='wayland-0'), patch.object(cli.shutil, 'which', return_value='/bin/tool'), patch.object(cli, 'read_clipboard', return_value=(b'hello', 'markdown')), patch.object(cli, 'prepare_document', return_value=b'{}'), patch.object(cli, 'native_clipboard_payload', return_value=expected), patch.object(cli, 'lost_image_sources', return_value=[]), patch.object(cli, 'run', return_value=b'plain'), patch.object(cli, 'notify'), patch.object(cli, 'set_clipboard_payload') as clipboard, patch.object(cli.subprocess, 'Popen') as opener:
             self.assertEqual(cli.main([], options={}), 0)
             clipboard.assert_called_once_with(expected)
             opener.assert_not_called()

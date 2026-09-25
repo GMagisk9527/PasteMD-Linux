@@ -78,7 +78,9 @@ class ConversionWorker(QThread):
                 Path(name).unlink(missing_ok=True)
                 raise
             lost = cli.lost_image_count(document, docx)
-            self.completed.emit({'path': name, 'lost_images': lost, **extra})
+            lost_sources = cli.lost_image_sources(document, docx)
+            self.completed.emit({'path': name, 'lost_images': lost,
+                                 'lost_image_sources': lost_sources, **extra})
             return
         self.stage.emit('正在生成含公式的 DOCX…')
         plain = cli.run([cli.pandoc_bin(), '-f', 'json', '-t', 'plain'], document)
@@ -87,7 +89,9 @@ class ConversionWorker(QThread):
         self.stage.emit('正在写入剪贴板…')
         cli.set_clipboard_payload(payload)
         lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
+        lost_sources = cli.lost_image_sources(document, payload['Kingsoft WPS 9.0 Format'])
         result = {'clipboard': True, 'token': token, 'lost_images': lost,
+                  'lost_image_sources': lost_sources,
                   'source': source, 'reader': reader, 'flow': 'doc',
                   'plain': plain.decode('utf-8', 'replace'), **extra}
         if self.options.get('keep_file'):
@@ -158,6 +162,7 @@ class MainWindow(QMainWindow):
         self.smoke = smoke
         self.worker = None
         self.paste_pending = False
+        self.paste_retry_available = False
         self._last_convert = 0.0
         self.pending_quit = False
         self.target = None
@@ -469,6 +474,9 @@ class MainWindow(QMainWindow):
         prepare.triggered.connect(lambda: self.convert())
         demo = menu.addAction('测试公式')
         demo.triggered.connect(lambda: self.convert(demo=True))
+        self.retry_action = menu.addAction('重试上次粘贴')
+        self.retry_action.triggered.connect(self._retry_paste)
+        self.retry_action.setVisible(False)
         open_save = menu.addAction('打开 DOCX 保存目录')
         open_save.triggered.connect(self._open_save_dir)
         clear_cache = menu.addAction('清理旧缓存 DOCX…')
@@ -714,7 +722,20 @@ class MainWindow(QMainWindow):
         source, reader, flow = embedded
         return self._reuse_meta(source, reader, flow)
 
+    def _set_retry_available(self, available):
+        self.paste_retry_available = bool(available)
+        if hasattr(self, 'retry_action'):
+            self.retry_action.setVisible(self.paste_retry_available)
+            self.retry_action.setEnabled(self.paste_retry_available and not self.worker)
+
+    def _retry_paste(self):
+        if self.paste_retry_available and not self.worker:
+            self._set_retry_available(False)
+            self._schedule_paste()
+            self.report('正在重试自动粘贴…')
+
     def _schedule_paste(self):
+        self._set_retry_available(False)
         self.paste_pending = True
         self.paste_ready_at = time.monotonic() + self.settings['paste_delay_ms'] / 1000
         self.paste_deadline = self.paste_ready_at + 3
@@ -722,6 +743,9 @@ class MainWindow(QMainWindow):
 
     def convert(self, paste=False, demo=False, open_docx=False):
         if self.pending_quit or self.closing:
+            return
+        if paste and self.paste_retry_available:
+            self._retry_paste()
             return
         # 防抖（对齐上游 FIRE_DEBOUNCE_SEC）：转换刚结束的短时间内连按热键不再触发
         now = time.monotonic()
@@ -731,8 +755,8 @@ class MainWindow(QMainWindow):
         if self.worker or self.paste_pending:
             self.report('正在处理，请稍候。')
             return
+        self._set_retry_available(False)
         self.target = None
-        self.flow = 'doc'
         paste_now = paste and self.settings['auto_paste']
         app = self.focused_app() if paste_now else None
         if paste_now and app is None:
@@ -862,7 +886,11 @@ class MainWindow(QMainWindow):
         if self.pending_quit or self.closing:
             return
         self.lost_images = result.get('lost_images') or 0
+        self.lost_image_sources = result.get('lost_image_sources') or []
         lost_note = f'注意：{self.lost_images} 张图片未能嵌入。' if self.lost_images else ''
+        if self.lost_image_sources:
+            preview = '、'.join(self.lost_image_sources[:3])
+            lost_note += f' 可能来源：{preview}' + (' 等' if len(self.lost_image_sources) > 3 else '')
         if 'path' in result:
             try:
                 cli.open_in_wps(result['path'])
@@ -908,13 +936,16 @@ class MainWindow(QMainWindow):
     def _try_paste(self):
         if time.monotonic() < self.paste_ready_at:
             return
+        retryable = False
         try:
             if self.focused_app() != self.target:
-                raise RuntimeError('焦点已变化，内容已就绪，请在 WPS 中手动 Ctrl+V。')
+                retryable = True
+                raise RuntimeError('焦点已变化，内容已就绪，请手动重试粘贴。')
             if self.x11.modifiers_held():
+                retryable = True
                 if time.monotonic() < self.paste_deadline:
                     return
-                raise RuntimeError('快捷键未松开，内容已就绪，请手动 Ctrl+V。')
+                raise RuntimeError('快捷键未松开，内容已就绪，请手动重试粘贴。')
             mime = QApplication.clipboard().mimeData()
             token_data = mime.data(CLIPBOARD_TOKEN_MIME) if mime is not None else None
             token_ok = (self.clipboard_token and token_data is not None
@@ -929,6 +960,7 @@ class MainWindow(QMainWindow):
                 raise RuntimeError('剪贴板已变化，已取消自动粘贴，请重新转换需要的内容。')
             self.x11.paste(self.target,
                            move_cursor_to_end=bool(self.settings.get('move_cursor_to_end', True)))
+            self._set_retry_available(False)
             if self.flow == 'table':
                 self.report('已向 WPS 表格发送粘贴。', notify=True)
             elif self.flow in cli.TEXT_FORMAT_LABELS:
@@ -939,7 +971,9 @@ class MainWindow(QMainWindow):
                 self.report('已向 WPS 发送粘贴，请使用 .docx 格式保留公式。'
                             + lost_note + self.keep_note, notify=True)
         except Exception as error:
-            self.report(str(error), notify=True)
+            self._set_retry_available(retryable and self.target and self.clipboard_token)
+            suffix = ' 可再次按转换热键或从托盘选择“重试上次粘贴”。' if self.paste_retry_available else ''
+            self.report(str(error) + suffix, notify=True)
         self.paste_timer.stop()
         self.paste_pending = False
         self._set_busy(False)

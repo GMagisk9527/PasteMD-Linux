@@ -45,6 +45,25 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(loaded['pandoc_request_headers'], settings.DEFAULTS['pandoc_request_headers'])
         self.assertEqual(loaded['horizontal_rule_style'], 'default')
 
+    def test_corrupt_settings_is_backed_up(self):
+        config = settings.config_file()
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('{not-json')
+        with self.assertRaisesRegex(RuntimeError, '已备份到'):
+            settings.load_settings()
+        backups = list(config.parent.glob('settings.json.broken-*'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), '{not-json')
+        self.assertEqual(settings.load_settings(), settings.DEFAULTS)
+    def test_corrupt_settings_backup_failure_preserves_original(self):
+        config = settings.config_file()
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('{not-json')
+        with patch('pastemd.linux.settings.shutil.copy2', side_effect=OSError('read-only')):
+            with self.assertRaisesRegex(RuntimeError, '备份失败'):
+                settings.load_settings()
+        self.assertEqual(config.read_text(), '{not-json')
+
     def test_autostart_and_launcher_only_touch_their_files(self):
         other = Path(self.temp.name) / 'autostart/other.desktop'
         other.parent.mkdir()
@@ -224,6 +243,7 @@ class DesktopTests(unittest.TestCase):
                       return_value={'Kingsoft WPS 9.0 Format': b'docx', 'text/plain': b'plain'}), \
                 patch('pastemd.linux.gui.cli.set_clipboard_payload') as clipboard, \
                 patch('pastemd.linux.gui.cli.lost_image_count', return_value=0), \
+                patch('pastemd.linux.gui.cli.lost_image_sources', return_value=[]), \
                 patch('pastemd.linux.gui.cli.docx_output_path', side_effect=OSError('磁盘已满')):
             worker._emit_document(b'# hello', 'markdown')
         clipboard.assert_called_once()
@@ -258,6 +278,24 @@ class DesktopTests(unittest.TestCase):
         window.x11.paste.assert_not_called()
         self.assertFalse(window.paste_pending)
         self.assertIn('焦点已变化', window.log.toPlainText())
+
+    def test_focus_failure_exposes_manual_retry(self):
+        window = self.window()
+        window.x11 = Mock()
+        window.target = (10, '文档', 'writer')
+        window.x11.focused_app.return_value = (11, '其他窗口', None)
+        window.x11.modifiers_held.return_value = False
+        window.clipboard_token = b'token'
+        window.paste_pending = True
+        window.paste_ready_at = 0
+        window._try_paste()
+        self.assertTrue(window.paste_retry_available)
+        self.assertIn('再次按转换热键', window.log.toPlainText())
+        window.x11.focused_app.return_value = window.target
+        with patch.object(window, '_schedule_paste') as schedule:
+            window.convert(paste=True)
+        schedule.assert_called_once()
+        self.assertFalse(window.paste_retry_available)
 
     def test_held_modifiers_wait_then_paste_only_once(self):
         window = self.window()
@@ -300,7 +338,7 @@ class DesktopTests(unittest.TestCase):
             clipboard.return_value.mimeData.return_value = mime
             window._try_paste()
         window.x11.paste.assert_not_called()
-        self.assertFalse(window.paste_pending)
+        self.assertFalse(window.paste_retry_available)
         self.assertIn('剪贴板已变化', window.log.toPlainText())
 
     def test_changed_text_with_same_mime_cancels_automatic_paste(self):
@@ -322,7 +360,7 @@ class DesktopTests(unittest.TestCase):
         with patch('pastemd.linux.gui.QApplication.clipboard') as clipboard:
             clipboard.return_value.mimeData.return_value = mime
             window._try_paste()
-        window.x11.paste.assert_not_called()
+        self.assertFalse(window.paste_retry_available)
         self.assertIn('剪贴板已变化', window.log.toPlainText())
 
     def test_html_paste_requires_matching_plain_source_when_token_is_lost(self):

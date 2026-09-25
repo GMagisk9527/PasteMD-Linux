@@ -543,30 +543,47 @@ def math_count(value):
     return 0
 
 
-def image_urls(value):
-    """Distinct image sources in a Pandoc AST. Pandoc dedupes identical
-    media in DOCX, so counting sources (not nodes) matches its output."""
+def image_sources(value):
+    """Return distinct image sources from a Pandoc AST."""
     found = set()
     if isinstance(value, dict):
         if value.get('t') == 'Image' and len(value.get('c', [])) > 2:
             found.add(value['c'][2][0])
         for item in value.values():
-            found |= image_urls(item)
+            found |= image_sources(item)
     elif isinstance(value, list):
         for item in value:
-            found |= image_urls(item)
+            found |= image_sources(item)
     return found
+
+
+def image_urls(value):
+    return image_sources(value)
+
+
+def _image_media_count(docx):
+    with zipfile.ZipFile(io.BytesIO(docx)) as archive:
+        return sum(1 for name in archive.namelist()
+                   if name.startswith('word/media/'))
+
+
+def lost_image_sources(document, docx):
+    """Return possible image sources when some media were not embedded.
+
+    DOCX media entries do not reliably retain the original URL, so these are
+    candidates for diagnosis rather than an exact missing-image mapping.
+    """
+    expected = image_sources(json.loads(document))
+    missing = max(0, len(expected) - _image_media_count(docx))
+    return sorted(expected) if missing else []
 
 
 def lost_image_count(document, docx):
     """Images the document references but the DOCX media store lacks."""
-    expected = image_urls(json.loads(document))
+    expected = image_sources(json.loads(document))
     if not expected:
         return 0
-    with zipfile.ZipFile(io.BytesIO(docx)) as archive:
-        embedded = sum(1 for name in archive.namelist()
-                       if name.startswith('word/media/'))
-    return max(0, len(expected) - embedded)
+    return max(0, len(expected) - _image_media_count(docx))
 
 
 def native_clipboard_payload(document, plain_text, options=None, reader='markdown'):
@@ -767,18 +784,28 @@ def main(argv=None, options=None):
             message = 'DOCX 已保存：' + str(name)
             lost = lost_image_count(content, docx)
             if lost:
+                sources = lost_image_sources(content, docx)
                 message += f'（注意：{lost} 张图片未能嵌入）'
+                if sources:
+                    message += ' 可能来源：' + '、'.join(sources[:3])
+                    if len(sources) > 3:
+                        message += ' 等'
             notify(message)
             print(message)
         else:
             plain_text = run(command + ['--to', 'plain'], content)
             payload = native_clipboard_payload(content, plain_text, options, reader)
             lost = lost_image_count(content, payload['Kingsoft WPS 9.0 Format'])
+            lost_sources = lost_image_sources(content, payload['Kingsoft WPS 9.0 Format'])
             payload, _token = stamp_conversion(payload, raw_source, reader, 'doc')
             set_clipboard_payload(payload)
             message = '公式富文本已就绪，请在 WPS 的 .docx 文档中按 Ctrl+V。'
             if lost:
                 message += f'注意：{lost} 张图片未能嵌入。'
+                if lost_sources:
+                    message += ' 可能来源：' + '、'.join(lost_sources[:3])
+                    if len(lost_sources) > 3:
+                        message += ' 等'
             if options.get('keep_file'):
                 try:
                     keep_path = docx_output_path(options)
