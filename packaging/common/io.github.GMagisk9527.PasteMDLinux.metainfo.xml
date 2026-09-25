@@ -18,6 +18,11 @@
   <url type="bugtracker">https://github.com/GMagisk9527/PasteMD-Linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.3" date="2026-09-24">
+      <description>
+        <p>新增 Pandoc/过滤器转换取消（取消不更改剪贴板）、自动粘贴手动重试、损坏配置备份恢复及图片缺失来源诊断；登录启动文件原子写入，并升级 CI/Release Actions 至 Node.js 24 兼容版本。</p>
+      </description>
+    </release>
     <release version="0.6.2" date="2026-09-24">
       <description>
         <p>修复统一套件窗口改名/无扩展名文档不自动粘贴、混合 Markdown 抽不出表、重复热键重新转换，以及表格窗口复制非表内容时报错；剪贴板变化时不再误粘贴旧结果。修复 HTML 纯文本输出、代码围栏、关闭高亮和保存文件冲突；增加设置页滚动、转换阶段提示和经确认的旧缓存清理。</p>

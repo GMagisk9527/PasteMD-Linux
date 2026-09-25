@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 import tempfile
@@ -28,6 +29,57 @@ class WaylandTests(unittest.TestCase):
         self.addCleanup(cleanup)
         return process
 
+    def test_run_cancellation_kills_process_group(self):
+        cancellation = cli.CommandCancellation()
+        started = threading.Event()
+        errors = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            child_pid_file = Path(directory) / 'child.pid'
+            parent_code = (
+                'import subprocess,sys,time; '
+                'subprocess.Popen([sys.executable,"-c",'
+                '"import os,sys,time;open(sys.argv[1],\'w\').write(str(os.getpid()));time.sleep(30)",'
+                'sys.argv[1]]); time.sleep(30)')
+
+            def convert():
+                cli.set_command_cancellation(cancellation)
+                started.set()
+                try:
+                    cli.run([sys.executable, '-c', parent_code, str(child_pid_file)])
+                except Exception as error:
+                    errors.append(error)
+                finally:
+                    cli.set_command_cancellation(None)
+
+            thread = threading.Thread(target=convert)
+            thread.start()
+            self.assertTrue(started.wait(2))
+            deadline = time.monotonic() + 5
+            while (cancellation._process is None or not child_pid_file.exists()) \
+                    and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIsNotNone(cancellation._process)
+            self.assertTrue(child_pid_file.exists())
+            child_pid = int(child_pid_file.read_text())
+            self.assertTrue(cancellation.cancel())
+            thread.join(6)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], cli.CommandCancelled)
+            deadline = time.monotonic() + 2
+            while Path(f'/proc/{child_pid}/stat').exists() and time.monotonic() < deadline:
+                stat = Path(f'/proc/{child_pid}/stat').read_text().split()
+                if stat[2] == 'Z':
+                    break
+                time.sleep(0.01)
+            if Path(f'/proc/{child_pid}/stat').exists():
+                self.assertEqual(Path(f'/proc/{child_pid}/stat').read_text().split()[2], 'Z')
+
+    def test_clipboard_commit_cannot_be_cancelled_mid_publish(self):
+        cancellation = cli.CommandCancellation()
+        cancellation.begin_commit()
+        self.assertFalse(cancellation.cancel())
     def test_clipboard_handshake_bounds_blocked_write(self):
         process = self.pipe_process('import time; time.sleep(30)')
         started = time.monotonic()

@@ -198,11 +198,23 @@ def autostart_path():
     return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'autostart' / 'pastemd-linux.desktop'
 
 
+def _atomic_write_text(target, text):
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix=f'.{target.name}-')
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(text)
+        os.chmod(name, 0o644)
+        os.replace(name, target)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
 def set_autostart(enabled):
     target = autostart_path()
     if enabled:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(desktop_entry(minimized=True))
+        _atomic_write_text(target, desktop_entry(minimized=True))
     else:
         target.unlink(missing_ok=True)
 
@@ -211,8 +223,7 @@ def install_launcher():
     if os.environ.get('FLATPAK_ID'):
         return Path('/app/share/applications') / (os.environ['FLATPAK_ID'] + '.desktop')
     target = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'applications/pastemd-linux.desktop'
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(desktop_entry())
+    _atomic_write_text(target, desktop_entry())
     icon = target.parent.parent / 'icons/hicolor/256x256/apps/pastemd-linux.png'
     icon.parent.mkdir(parents=True, exist_ok=True)
     icon.write_bytes((ROOT / 'assets/icons/logo.png').read_bytes())

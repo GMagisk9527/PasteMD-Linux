@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import re
 import select
+import signal
+import threading
 import time
 import shutil
 import subprocess
@@ -56,6 +58,74 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
 
 请点击公式，检查能否编辑分子、根式和求和上下限。
 """
+
+
+class CommandCancelled(RuntimeError):
+    """Raised when a cancellable Pandoc command is stopped by the user."""
+
+
+class CommandCancellation:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cancelled = threading.Event()
+        self._process = None
+        self._committing = False
+
+    @property
+    def cancelled(self):
+        return self._cancelled.is_set()
+
+    def cancel(self):
+        with self._lock:
+            if self._committing:
+                return False
+            self._cancelled.set()
+            process = self._process
+        if process is not None:
+            self._signal_group(process, signal.SIGTERM)
+        return True
+
+    def attach(self, process):
+        with self._lock:
+            self._process = process
+            cancelled = self._cancelled.is_set()
+        if cancelled:
+            self._signal_group(process, signal.SIGTERM)
+
+    def detach(self, process):
+        with self._lock:
+            if self._process is process:
+                self._process = None
+
+    def begin_commit(self):
+        with self._lock:
+            if self._cancelled.is_set():
+                raise CommandCancelled('转换已取消。')
+            self._committing = True
+
+    @staticmethod
+    def _signal_group(process, sig):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+
+    def kill_group(self, process):
+        self._signal_group(process, signal.SIGKILL)
+
+
+_command_context = threading.local()
+
+
+def set_command_cancellation(cancellation):
+    _command_context.cancellation = cancellation
+
+
+def commit_clipboard(callback):
+    cancellation = getattr(_command_context, 'cancellation', None)
+    if cancellation is not None:
+        cancellation.begin_commit()
+    callback()
 
 
 def clean_document(value):
@@ -331,12 +401,52 @@ def pandoc_bin():
 
 
 def run(command, data=None, env=None):
-    result = subprocess.run(command, input=data, capture_output=True,
-                            timeout=60, env=env)
-    if result.returncode:
-        raise RuntimeError(result.stderr.decode('utf-8', 'replace').strip()
-                           or f'{command[0]} failed ({result.returncode})')
-    return result.stdout
+    cancellation = getattr(_command_context, 'cancellation', None)
+    if cancellation is not None and cancellation.cancelled:
+        raise CommandCancelled('转换已取消。')
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if data is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                               start_new_session=True)
+    if cancellation is not None:
+        cancellation.attach(process)
+    started = time.monotonic()
+    try:
+        while True:
+            if cancellation is not None and cancellation.cancelled:
+                cancellation.kill_group(process)
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                raise CommandCancelled('转换已取消，已终止 Pandoc 和过滤器进程。')
+            remaining = 60 - (time.monotonic() - started)
+            if remaining <= 0:
+                if cancellation is not None:
+                    cancellation.kill_group(process)
+                else:
+                    CommandCancellation._signal_group(process, signal.SIGKILL)
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                raise subprocess.TimeoutExpired(command, 60)
+            try:
+                stdout, stderr = process.communicate(input=data, timeout=min(0.1, remaining))
+                if cancellation is not None and cancellation.cancelled:
+                    cancellation.kill_group(process)
+                    raise CommandCancelled('转换已取消，已终止 Pandoc 和过滤器进程。')
+                break
+            except subprocess.TimeoutExpired:
+                data = None
+        if process.returncode:
+            raise RuntimeError(stderr.decode('utf-8', 'replace').strip()
+                               or f'{command[0]} failed ({process.returncode})')
+        return stdout
+    finally:
+        if cancellation is not None:
+            cancellation.detach(process)
 
 
 def clipboard_types():

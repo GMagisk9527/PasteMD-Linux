@@ -35,6 +35,7 @@ CLIPBOARD_FLOW_MIME = cli.CLIPBOARD_FLOW_MIME
 class ConversionWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
+    cancelled = Signal()
     stage = Signal(str)
 
     def __init__(self, input_format, demo=False, open_docx=False, options=None, flow='doc',
@@ -45,6 +46,10 @@ class ConversionWorker(QThread):
         self.flow = flow
         self.source_override = source
         self.reader_override = reader
+        self.cancellation = cli.CommandCancellation()
+
+    def cancel(self):
+        return self.cancellation.cancel()
 
     def _load_source(self):
         if self.source_override is not None:
@@ -87,7 +92,7 @@ class ConversionWorker(QThread):
         payload = cli.native_clipboard_payload(document, plain, self.options, reader)
         payload, token = cli.stamp_conversion(payload, source, reader, 'doc')
         self.stage.emit('正在写入剪贴板…')
-        cli.set_clipboard_payload(payload)
+        cli.commit_clipboard(lambda: cli.set_clipboard_payload(payload))
         lost = cli.lost_image_count(document, payload['Kingsoft WPS 9.0 Format'])
         lost_sources = cli.lost_image_sources(document, payload['Kingsoft WPS 9.0 Format'])
         result = {'clipboard': True, 'token': token, 'lost_images': lost,
@@ -104,6 +109,7 @@ class ConversionWorker(QThread):
         self.completed.emit(result)
 
     def run(self):
+        cli.set_command_cancellation(self.cancellation)
         try:
             if self.flow == 'table':
                 self.stage.emit('正在读取并解析表格…')
@@ -124,7 +130,7 @@ class ConversionWorker(QThread):
                     return
                 payload, token = cli.stamp_conversion(payload, source, reader, 'table')
                 self.stage.emit('正在写入剪贴板…')
-                cli.set_clipboard_payload(payload)
+                cli.commit_clipboard(lambda: cli.set_clipboard_payload(payload))
                 source_bytes = source if isinstance(source, bytes) else source.encode('utf-8')
                 self.completed.emit({'clipboard': True, 'token': token, 'rows': rows,
                                      'source': source_bytes, 'reader': reader, 'flow': 'table',
@@ -144,7 +150,7 @@ class ConversionWorker(QThread):
                                                      self.options)
                 payload, token = cli.stamp_conversion(payload, source, reader, self.flow)
                 self.stage.emit('正在写入剪贴板…')
-                cli.set_clipboard_payload(payload)
+                cli.commit_clipboard(lambda: cli.set_clipboard_payload(payload))
                 plain = payload.get('text/plain')
                 self.completed.emit({'clipboard': True, 'token': token, 'text_flow': self.flow,
                                      'source': source, 'reader': reader, 'flow': self.flow,
@@ -152,8 +158,12 @@ class ConversionWorker(QThread):
                                      'html': payload.get('text/html')})
                 return
             self._emit_document(source, reader)
+        except cli.CommandCancelled:
+            self.cancelled.emit()
         except Exception as error:
             self.failed.emit(str(error))
+        finally:
+            cli.set_command_cancellation(None)
 
 
 class MainWindow(QMainWindow):
@@ -251,7 +261,10 @@ class MainWindow(QMainWindow):
         self.demo_button.clicked.connect(lambda: self.convert(demo=True))
         self.docx_button = QPushButton('生成并打开 DOCX')
         self.docx_button.clicked.connect(lambda: self.convert(open_docx=True))
-        for button in (self.convert_button, self.demo_button, self.docx_button):
+        self.cancel_button = QPushButton('取消转换')
+        self.cancel_button.clicked.connect(self.cancel_conversion)
+        self.cancel_button.hide()
+        for button in (self.convert_button, self.demo_button, self.docx_button, self.cancel_button):
             actions.addWidget(button)
         home_layout.addLayout(actions)
         home_layout.addWidget(QLabel('手动转换后按 Ctrl+V；使用热键时可自动粘贴。'))
@@ -827,6 +840,7 @@ class MainWindow(QMainWindow):
         self.worker.completed.connect(self._converted)
         self.worker.stage.connect(self.report)
         self.worker.failed.connect(lambda text: self.report('转换失败：' + text, notify=True))
+        self.worker.cancelled.connect(lambda: self.report('转换已取消，剪贴板内容未更改。'))
         self.worker.finished.connect(self._worker_finished)
         self._set_busy(True)
         self.report('正在转换…')
@@ -835,6 +849,18 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy):
         for button in (self.convert_button, self.demo_button, self.docx_button):
             button.setEnabled(not busy)
+        self.cancel_button.setVisible(busy)
+        self.cancel_button.setEnabled(busy)
+
+    def cancel_conversion(self):
+        if not self.worker:
+            return
+        if self.worker.cancel():
+            self.cancel_button.setEnabled(False)
+            self.report('正在取消转换并终止 Pandoc/过滤器…')
+        else:
+            self.cancel_button.setEnabled(False)
+            self.report('已进入剪贴板写入阶段，无法取消。')
 
     def _worker_finished(self):
         self.worker.deleteLater()

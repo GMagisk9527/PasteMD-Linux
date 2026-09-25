@@ -78,7 +78,17 @@ class DesktopTests(unittest.TestCase):
         self.assertIn('Terminal=false', launcher.read_text())
         self.assertTrue((Path(self.temp.name) / 'icons/hicolor/256x256/apps/pastemd-linux.png').exists())
 
-    def test_packaged_launch_commands(self):
+    def test_autostart_write_is_atomic_on_replace_failure(self):
+        target = settings.autostart_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('existing desktop entry')
+        with patch('pastemd.linux.settings.os.replace', side_effect=OSError('disk error')):
+            with self.assertRaisesRegex(OSError, 'disk error'):
+                settings.set_autostart(True)
+        self.assertEqual(target.read_text(), 'existing desktop entry')
+        self.assertEqual(list(target.parent.glob('.pastemd-linux.desktop-*')), [])
+
+
         with patch.dict(os.environ, {'APPIMAGE': '/tmp/PasteMD.AppImage'}, clear=False):
             self.assertIn('/tmp/PasteMD.AppImage', settings.desktop_entry())
         with patch.dict(os.environ, {'FLATPAK_ID': settings.FLATPAK_APP_ID}, clear=False):
